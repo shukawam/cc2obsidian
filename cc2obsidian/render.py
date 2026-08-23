@@ -1,5 +1,7 @@
 """Session 中間表現を Obsidian 向け Markdown へ描画する。"""
-from .model import Session
+import re
+
+from .model import Session, ToolCall, Turn
 from .slugs import customer_from_cwd
 
 HEAD_LINES = 40
@@ -74,3 +76,73 @@ def render_frontmatter(session: Session) -> str:
     lines.append(f"tags: [{', '.join(tags)}]")
     lines.append("---")
     return "\n".join(lines) + "\n"
+
+
+_BACKTICKS = re.compile(r"`+")
+
+ROLE_HEADINGS = {"user": "👤", "assistant": "🤖"}
+
+
+def _fence_for(text: str) -> str:
+    """本文に含まれるバッククォート連長より長いフェンスを返す。"""
+    longest = max((len(m.group()) for m in _BACKTICKS.finditer(text)), default=0)
+    return "`" * max(3, longest + 1)
+
+
+def _code_block(text: str, lang: str = "") -> str:
+    fence = _fence_for(text)
+    return f"{fence}{lang}\n{text}\n{fence}"
+
+
+def _render_tool_call(call: ToolCall) -> str:
+    mark = "⚠️ " if call.is_error else ""
+    summary = f"{mark}🔧 {call.tool_name} — {call.summary}"
+    parts = [f"<details><summary>{summary}</summary>", ""]
+    if call.input_text:
+        lang = "bash" if call.tool_name == "Bash" else ""
+        parts.append(_code_block(call.input_text, lang))
+        parts.append("")
+    result = truncate_output(call.result_text) if call.result_text else "(出力なし)"
+    parts.append(_code_block(result))
+    parts.append("")
+    parts.append("</details>")
+    return "\n".join(parts)
+
+
+def _render_turn(turn: Turn) -> str | None:
+    if not (turn.text.strip() or turn.thinking.strip() or turn.tool_calls):
+        return None
+    icon = ROLE_HEADINGS.get(turn.role, "•")
+    parts = [f"## {icon} {turn.ts:%H:%M}", ""]
+    if turn.text.strip():
+        parts.append(turn.text.strip())
+        parts.append("")
+    if turn.thinking.strip():
+        parts.append("<details><summary>💭 thinking</summary>")
+        parts.append("")
+        parts.append(turn.thinking.strip())
+        parts.append("")
+        parts.append("</details>")
+        parts.append("")
+    for call in turn.tool_calls:
+        parts.append(_render_tool_call(call))
+        parts.append("")
+    rendered = "\n".join(parts).rstrip() + "\n"
+    if turn.is_sidechain:
+        return (f"<details><summary>🧵 サブエージェント {turn.ts:%H:%M}</summary>\n\n"
+                f"{rendered}\n</details>\n")
+    return rendered
+
+
+def render_body(session: Session) -> str:
+    blocks = [f"# {session.title}\n"]
+    for turn in session.turns:
+        rendered = _render_turn(turn)
+        if rendered:
+            blocks.append(rendered)
+    return "\n".join(blocks)
+
+
+def render_note(session: Session) -> str:
+    note = render_frontmatter(session) + "\n" + render_body(session)
+    return note if note.endswith("\n") else note + "\n"
