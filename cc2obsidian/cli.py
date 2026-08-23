@@ -21,7 +21,7 @@ def log_error(message: str) -> None:
         stamp = datetime.now().isoformat(timespec="seconds")
         with path.open("a", encoding="utf-8") as fh:
             fh.write(f"[{stamp}] {message}\n")
-    except OSError:
+    except Exception:
         pass
 
 
@@ -36,8 +36,6 @@ def convert_one(path: Path, vault_root: Path, st: State, dry_run: bool = False) 
     return write_note(vault_root, session, st, path.stat().st_mtime, dry_run=dry_run)
 
 
-# 注: JSONL のファイル名は <session-id>.jsonl なので path.stem が session_id になる。
-# 万一ずれても needs_update が True を返して再変換されるだけで、壊れはしない。
 def iter_transcripts(projects_root: Path, since_days: int | None) -> list[Path]:
     projects_root = Path(projects_root)
     if not projects_root.is_dir():
@@ -72,17 +70,33 @@ def cmd_backfill(args) -> int:
     converted = skipped = failed = 0
     for path in transcripts:
         try:
+            # Stat once and keep the mtime.
+            mtime = path.stat().st_mtime
+
+            # Cheap pre-check: if filename is the session ID (normal case),
+            # this skips without parsing. If not, it returns True and we proceed.
+            # This is the fast path that avoids parsing when nothing changed.
+            if not st.needs_update(path.stem, mtime):
+                skipped += 1
+                continue
+
+            # Parse the transcript to get the authoritative session_id.
             session = parse_transcript(path)
             if session is None:
                 skipped += 1
                 continue
-            if not st.needs_update(session.session_id, path.stat().st_mtime):
+
+            # Confirm with the authoritative key before converting.
+            if not st.needs_update(session.session_id, mtime):
                 skipped += 1
                 continue
-            if convert_one(path, vault_root, st, dry_run=args.dry_run) is None:
-                skipped += 1
-            else:
+
+            # Write directly with the session we already have, avoiding re-parse.
+            result = write_note(vault_root, session, st, mtime, dry_run=args.dry_run)
+            if result is not None:
                 converted += 1
+            else:
+                skipped += 1
         except Exception as exc:
             failed += 1
             log_error(f"backfill failed for {path}: {exc!r}")

@@ -124,6 +124,11 @@ class HookTest(unittest.TestCase):
             self.assertEqual(self._run_hook({"transcript_path": str(src)}), 0)
         self.assertIn("boom", (self.root / "cc2obsidian.log").read_text(encoding="utf-8"))
 
+    def test_exits_zero_when_logging_itself_fails(self):
+        with mock.patch("cc2obsidian.cli.config.log_path", side_effect=RuntimeError("log broken")):
+            with mock.patch("sys.stdin", io.StringIO("not json")):
+                self.assertEqual(cli.main(["hook"]), 0)
+
 
 class BackfillTest(unittest.TestCase):
     def setUp(self):
@@ -178,6 +183,38 @@ class BackfillTest(unittest.TestCase):
         write_transcript(self.projects / "proj-good", "good.jsonl")
         self.assertEqual(cli.main(["backfill", "--all"]), 0)
         self.assertEqual(len(list((self.vault / "Notes").rglob("*.md"))), 1)
+
+    def test_backfill_parses_each_transcript_once(self):
+        write_transcript(self.projects / "proj-a", "a.jsonl")
+        write_transcript(self.projects / "proj-b", "b.jsonl")
+        parse_count = 0
+        original_parse = cli.parse_transcript
+
+        def counting_parse(path):
+            nonlocal parse_count
+            parse_count += 1
+            return original_parse(path)
+
+        with mock.patch("cc2obsidian.cli.parse_transcript", side_effect=counting_parse):
+            self.assertEqual(cli.main(["backfill", "--all"]), 0)
+        self.assertEqual(parse_count, 2)
+
+    def test_backfill_does_not_parse_unchanged_transcripts(self):
+        # Use default filename "abc12345-0000.jsonl" which matches the session_id,
+        # so the cheap pre-check with path.stem will work and skip without parsing.
+        write_transcript(self.projects / "proj-a")
+        cli.main(["backfill", "--all"])
+        parse_count = 0
+        original_parse = cli.parse_transcript
+
+        def counting_parse(path):
+            nonlocal parse_count
+            parse_count += 1
+            return original_parse(path)
+
+        with mock.patch("cc2obsidian.cli.parse_transcript", side_effect=counting_parse):
+            self.assertEqual(cli.main(["backfill", "--all"]), 0)
+        self.assertEqual(parse_count, 0)
 
 
 if __name__ == "__main__":
