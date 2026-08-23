@@ -9,6 +9,20 @@ Claude Code のセッションを Obsidian Vault へ記録し、週次で振り�
 - 会話は全文、thinking とツール呼び出しは `<details>` で折りたたむ。長いツール出力は先頭 40 行 + 末尾 10 行に切り詰める
 - `/weekly-review` スキルが直近 7 日を分析し、`<Vault>/Notes/weekly/` に週次ノートを書く
 
+## インストール
+
+ノート取得には `SessionEnd` hook の登録が必要。
+
+`~/.claude/settings.json` の `hooks` セクション下に次を追加する。既存の hook エントリは必ず保持すること。
+
+```json
+"hooks": {
+  "SessionEnd": ["python3 ~/work/cc2obsidian/scripts/cc2obsidian.py hook"]
+}
+```
+
+推奨手順: `backfill --all --dry-run` で変換内容を確認 → `backfill --all` で既存ログを取り込む → hook を登録。この順序で、変換に問題があれば hook 登録前に検出される。
+
 ## コマンド
 
 ```bash

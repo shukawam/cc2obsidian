@@ -15,10 +15,10 @@ Obsidian Vault に蓄積された Claude Code セッションを読み、定型�
 
 ### 2. ダイジェストを取得する
 
-ノートを直接読まないこと。1 週間分の全文はコンテキストに収まらない。
+ノートを直接読まないこと。1 週間分の全文はコンテキストに収まらない。既定値 7 日をユーザーの指定期間に置き換える。
 
 ```bash
-python3 ~/work/cc2obsidian/scripts/cc2obsidian.py digest --since 7
+python3 ~/work/cc2obsidian/scripts/cc2obsidian.py digest --since <日数>
 ```
 
 「対象なし」が返ったら、まだノートが無い。バックフィルを勧めて終了する。
