@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import config
+from .digest import build_digest
 from .parse import parse_transcript
 from .state import State
 from .vault import write_note
@@ -111,6 +112,11 @@ def cmd_backfill(args) -> int:
     return 0
 
 
+def cmd_digest(args) -> int:
+    print(build_digest(config.vault_path(), args.since), end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cc2obsidian")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -125,6 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
                        help="直近 N 日を対象にする（既定 30）")
     backfill.add_argument("--dry-run", action="store_true", help="書き込まずに件数だけ出す")
     backfill.set_defaults(func=cmd_backfill)
+
+    dg = sub.add_parser("digest", help="週次分析用のダイジェストを標準出力へ")
+    dg.add_argument("--since", type=int, metavar="DAYS", default=7,
+                    help="直近 N 日を対象にする（既定 7）")
+    dg.set_defaults(func=cmd_digest)
 
     return parser
 
