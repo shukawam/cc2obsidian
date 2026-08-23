@@ -116,6 +116,7 @@ class BuildDigestTest(unittest.TestCase):
         out = digest.build_digest(self.root, since_days=3650)
         self.assertIn("最初の質問です", out)
         self.assertIn("読み取れなかったノート: 1 件", out)
+        self.assertIn("1 セッション", out)
         self.assertNotIn("壊れた", out)
 
 

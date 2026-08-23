@@ -56,12 +56,13 @@ def extract_user_turns(text: str) -> list[str]:
     return [t for t in turns if t]
 
 
-def _note_paths(vault_root: Path, since_days: int) -> list[Path]:
+def _note_paths(vault_root: Path, since_days: int) -> tuple[list[Path], int]:
     notes_dir = Path(vault_root) / "Notes"
     if not notes_dir.is_dir():
-        return []
+        return [], 0
     cutoff = time.time() - since_days * 86400
     paths = []
+    stat_skipped = 0
     for p in notes_dir.rglob("*.md"):
         if p.parent.name == "weekly":
             continue
@@ -69,22 +70,26 @@ def _note_paths(vault_root: Path, since_days: int) -> list[Path]:
             if p.stat().st_mtime >= cutoff:
                 paths.append(p)
         except OSError:
+            stat_skipped += 1
             continue
-    return sorted(paths)
+    return sorted(paths), stat_skipped
 
 
 def build_digest(vault_root: Path, since_days: int) -> str:
-    paths = _note_paths(vault_root, since_days)
+    paths, stat_skipped = _note_paths(vault_root, since_days)
     if not paths:
+        if stat_skipped > 0:
+            return f"# セッションダイジェスト（直近 {since_days} 日）\n\n対象なし（読み取れなかったノート: {stat_skipped} 件）\n"
         return f"# セッションダイジェスト（直近 {since_days} 日）\n\n対象なし\n"
 
-    blocks = [f"# セッションダイジェスト（直近 {since_days} 日 / {len(paths)} セッション）", ""]
-    skipped = 0
+    blocks = [""]
+    rendered = 0
+    read_skipped = 0
     for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
-            skipped += 1
+            read_skipped += 1
             continue
         fields = parse_frontmatter(text)
         meta = " / ".join(f"{k}={fields[k]}" for k in DIGEST_FIELDS if k in fields)
@@ -95,6 +100,12 @@ def build_digest(vault_root: Path, since_days: int) -> str:
         for turn in extract_user_turns(text):
             blocks.append(f"- {turn}")
         blocks.append("")
-    if skipped > 0:
-        blocks.append(f"（読み取れなかったノート: {skipped} 件）")
+        rendered += 1
+
+    total_skipped = stat_skipped + read_skipped
+    header = f"# セッションダイジェスト（直近 {since_days} 日 / {rendered} セッション）"
+    if total_skipped > 0:
+        header += f"（読み取れなかったノート: {total_skipped} 件）"
+    blocks[0] = header
+
     return "\n".join(blocks) + "\n"
