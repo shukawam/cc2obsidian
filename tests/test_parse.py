@@ -180,6 +180,37 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(s.started_at.hour, 8)
         self.assertEqual(s.duration_min, 42)
 
+    def test_command_name_entry_is_not_a_turn(self):
+        p = write_jsonl([
+            user_entry("本題"),
+            user_entry("<command-name>/model</command-name>\n"
+                       "            <command-message>model</command-message>\n"
+                       "            <command-args></command-args>"),
+            assistant_entry([{"type": "text", "text": "ok"}]),
+        ])
+        s = parse.parse_transcript(p)
+        self.assertEqual(s.user_turns, 1)
+        self.assertNotIn("<command-name>", "".join(t.text for t in s.turns))
+
+    def test_local_command_stdout_entry_is_not_a_turn(self):
+        p = write_jsonl([
+            user_entry("本題"),
+            user_entry("<local-command-stdout>Set model to Sonnet 5</local-command-stdout>"),
+            assistant_entry([{"type": "text", "text": "ok"}]),
+        ])
+        s = parse.parse_transcript(p)
+        self.assertEqual(s.user_turns, 1)
+        self.assertNotIn("<local-command-stdout>", "".join(t.text for t in s.turns))
+
+    def test_command_tag_mid_message_is_kept(self):
+        p = write_jsonl([
+            user_entry("本題"),
+            user_entry("さっき <command-name>/model</command-name> って打ったけどどういう意味？"),
+        ])
+        s = parse.parse_transcript(p)
+        self.assertEqual(s.user_turns, 2)
+        self.assertTrue(any("<command-name>" in t.text for t in s.turns))
+
     def test_malformed_lines_are_skipped(self):
         p = write_jsonl([user_entry("ok")])
         with p.open("a", encoding="utf-8") as fh:

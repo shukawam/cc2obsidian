@@ -54,6 +54,21 @@ class StateTest(unittest.TestCase):
         leftovers = [p.name for p in self.path.parent.iterdir() if p.name != "state.json"]
         self.assertEqual(leftovers, [])
 
+    def test_different_vault_needs_update_even_with_unchanged_mtime(self):
+        st = State(self.path)
+        st.put("s1", "x.md", 100.0, vault_root="/vault/a")
+        self.assertTrue(st.needs_update("s1", 100.0, vault_root="/vault/b"))
+
+    def test_same_vault_and_unchanged_mtime_needs_no_update(self):
+        st = State(self.path)
+        st.put("s1", "x.md", 100.0, vault_root="/vault/a")
+        self.assertFalse(st.needs_update("s1", 100.0, vault_root="/vault/a"))
+
+    def test_legacy_entry_without_vault_needs_update(self):
+        st = State(self.path)
+        st._data["s1"] = {"path": "x.md", "source_mtime": 100.0}  # no vault key, as an older version wrote it
+        self.assertTrue(st.needs_update("s1", 100.0, vault_root="/vault/a"))
+
 
 if __name__ == "__main__":
     unittest.main()

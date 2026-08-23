@@ -199,6 +199,19 @@ class BackfillTest(unittest.TestCase):
             self.assertEqual(cli.main(["backfill", "--all"]), 0)
         self.assertEqual(parse_count, 2)
 
+    def test_second_vault_still_receives_notes_after_first_vault_backfill(self):
+        # Regression test for the production incident: a backfill into a
+        # scratch Vault must not poison the shared state file so that a
+        # later backfill into the real Vault silently skips everything.
+        write_transcript(self.projects / "proj-a", "a.jsonl")
+        self.assertEqual(cli.main(["backfill", "--all"]), 0)
+        self.assertEqual(len(list((self.vault / "Notes").rglob("*.md"))), 1)
+
+        other_vault = self.root / "vault2"
+        with mock.patch("cc2obsidian.cli.config.vault_path", return_value=other_vault):
+            self.assertEqual(cli.main(["backfill", "--all"]), 0)
+        self.assertEqual(len(list((other_vault / "Notes").rglob("*.md"))), 1)
+
     def test_backfill_does_not_parse_unchanged_transcripts(self):
         # Use default filename "abc12345-0000.jsonl" which matches the session_id,
         # so the cheap pre-check with path.stem will work and skip without parsing.

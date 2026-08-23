@@ -14,6 +14,9 @@ SKIP_TYPES = frozenset({
     "mode", "permission-mode", "queue-operation", "last-prompt", "system",
 })
 
+# ユーザーの発言ではなく、ハーネスによるスラッシュコマンド機構の表現
+SLASH_COMMAND_PREFIXES = ("<command-name>", "<local-command-stdout>")
+
 
 def _read_entries(path: Path) -> list[dict]:
     entries = []
@@ -134,6 +137,8 @@ def parse_transcript(path: Path) -> Session | None:
             text = _user_text(message.get("content"))
             if not text.strip():
                 continue  # tool_result だけの user エントリ
+            if text.lstrip().startswith(SLASH_COMMAND_PREFIXES):
+                continue  # スラッシュコマンドの機構であり、ユーザーの発言ではない
             if not is_side:
                 user_turns += 1
             turns.append(Turn(role="user", ts=ts, text=text, is_sidechain=is_side))

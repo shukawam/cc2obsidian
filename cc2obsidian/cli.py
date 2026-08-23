@@ -77,7 +77,7 @@ def cmd_backfill(args) -> int:
             # Cheap pre-check: if filename is the session ID (normal case),
             # this skips without parsing. If not, it returns True and we proceed.
             # This is the fast path that avoids parsing when nothing changed.
-            if not st.needs_update(path.stem, mtime):
+            if not st.needs_update(path.stem, mtime, vault_root=vault_root):
                 skipped += 1
                 continue
 
@@ -88,7 +88,7 @@ def cmd_backfill(args) -> int:
                 continue
 
             # Confirm with the authoritative key before converting.
-            if not st.needs_update(session.session_id, mtime):
+            if not st.needs_update(session.session_id, mtime, vault_root=vault_root):
                 skipped += 1
                 continue
 

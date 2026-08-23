@@ -44,5 +44,5 @@ def write_note(
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(render_note(session), encoding="utf-8")
-    st.put(session.session_id, str(relpath), source_mtime)
+    st.put(session.session_id, str(relpath), source_mtime, vault_root=vault_root)
     return target
