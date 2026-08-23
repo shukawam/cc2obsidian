@@ -90,12 +90,23 @@ session_id: 472a17cb-1f3b-488d-b335-0f7bdf7de956
 title: スキル作成相談
 duration_min: 42
 user_turns: 5
+model: claude-opus-5
+models: {claude-opus-5: 45, claude-sonnet-5: 4}
 tool_counts: {Bash: 6, AskUserQuestion: 4}
 tags: [claude-code/session, project/work]
 ---
 ```
 
 `cwd` が `~/customer/<name>/...` の場合は `customer/<name>` タグも付与する。
+
+#### モデルの集計
+
+実ログでは opus / sonnet / fable が実際に使い分けられており（60 セッション中 53 が単一モデル、7 が複数モデル）、定数にはならない。「この定型作業は sonnet で完走できていた」「ここは opus が要った」がわかると、スキル化する際にどのモデルを指定するかの判断材料になる。手戻りの多いセッションとモデルの相関も見える。
+
+- `model` は最多のモデルを表すスカラー。Dataview で絞り込みやすくするため
+- `models` は 2 種類以上使われたときだけ出力するマップ
+- `<synthetic>` は実際の推論ではない合成メッセージなので集計から除外する
+- サブエージェント（`isSidechain: true`）は集計から除外する。`model` は「自分が何で回していたか」を表すべきなので。サブエージェントのモデルは折りたたみの中に残るため情報自体は失われない
 
 ### 6.3 本文
 
