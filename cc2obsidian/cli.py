@@ -1,0 +1,121 @@
+"""cc2obsidian のコマンドライン。hook / backfill / digest を提供する。"""
+import argparse
+import json
+import sys
+import time
+import traceback
+from datetime import datetime
+from pathlib import Path
+
+from . import config
+from .parse import parse_transcript
+from .state import State
+from .vault import write_note
+
+
+def log_error(message: str) -> None:
+    """hook を失敗させないため、エラーはファイルに落として黙って続行する。"""
+    try:
+        path = config.log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().isoformat(timespec="seconds")
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(f"[{stamp}] {message}\n")
+    except OSError:
+        pass
+
+
+def convert_one(path: Path, vault_root: Path, st: State, dry_run: bool = False) -> Path | None:
+    """1 本の JSONL をノートへ変換する。会話が無ければ None。"""
+    path = Path(path)
+    if not path.is_file():
+        return None
+    session = parse_transcript(path)
+    if session is None:
+        return None
+    return write_note(vault_root, session, st, path.stat().st_mtime, dry_run=dry_run)
+
+
+# 注: JSONL のファイル名は <session-id>.jsonl なので path.stem が session_id になる。
+# 万一ずれても needs_update が True を返して再変換されるだけで、壊れはしない。
+def iter_transcripts(projects_root: Path, since_days: int | None) -> list[Path]:
+    projects_root = Path(projects_root)
+    if not projects_root.is_dir():
+        return []
+    cutoff = time.time() - since_days * 86400 if since_days else None
+    found = [p for p in sorted(projects_root.glob("*/*.jsonl"))
+             if cutoff is None or p.stat().st_mtime >= cutoff]
+    return found
+
+
+def cmd_hook(args) -> int:
+    """SessionEnd hook 本体。何があっても 0 を返す。"""
+    try:
+        payload = json.load(sys.stdin)
+        transcript = payload.get("transcript_path")
+        if not transcript:
+            return 0
+        st = State(config.state_path())
+        if convert_one(Path(transcript).expanduser(), config.vault_path(), st) is not None:
+            st.save()
+    except Exception:
+        log_error("hook failed: " + traceback.format_exc().replace("\n", " | "))
+    return 0
+
+
+def cmd_backfill(args) -> int:
+    st = State(config.state_path())
+    since = None if args.all else args.since
+    transcripts = iter_transcripts(config.projects_dir(), since)
+    vault_root = config.vault_path()
+
+    converted = skipped = failed = 0
+    for path in transcripts:
+        try:
+            session = parse_transcript(path)
+            if session is None:
+                skipped += 1
+                continue
+            if not st.needs_update(session.session_id, path.stat().st_mtime):
+                skipped += 1
+                continue
+            if convert_one(path, vault_root, st, dry_run=args.dry_run) is None:
+                skipped += 1
+            else:
+                converted += 1
+        except Exception as exc:
+            failed += 1
+            log_error(f"backfill failed for {path}: {exc!r}")
+            print(f"  失敗: {path} ({exc!r})", file=sys.stderr)
+
+    if not args.dry_run:
+        st.save()
+
+    label = "(dry-run) " if args.dry_run else ""
+    print(f"{label}変換 {converted} / スキップ {skipped} / 失敗 {failed}"
+          f"（対象 {len(transcripts)} 本）")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="cc2obsidian")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    hook = sub.add_parser("hook", help="SessionEnd hook から呼ばれる")
+    hook.set_defaults(func=cmd_hook)
+
+    backfill = sub.add_parser("backfill", help="既存の JSONL をまとめて変換する")
+    group = backfill.add_mutually_exclusive_group()
+    group.add_argument("--all", action="store_true", help="全期間を対象にする")
+    group.add_argument("--since", type=int, metavar="DAYS", default=30,
+                       help="直近 N 日を対象にする（既定 30）")
+    backfill.add_argument("--dry-run", action="store_true", help="書き込まずに件数だけ出す")
+    backfill.set_defaults(func=cmd_backfill)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return args.func(args)
