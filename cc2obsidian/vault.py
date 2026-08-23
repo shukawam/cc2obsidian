@@ -12,7 +12,7 @@ def _target_relpath(vault_root: Path, session: Session, st: State) -> Path:
     relpath = note_relpath(
         session.started_at, session.project, session.title, session.session_id
     )
-    known = st.get(session.session_id)
+    known = st.get(session.session_id, vault_root=vault_root)
     if known and known.get("path") == str(relpath):
         return relpath  # 自分の既存ノート。そのまま上書きする
 
@@ -38,7 +38,7 @@ def write_note(
     if dry_run:
         return target
 
-    known = st.get(session.session_id)
+    known = st.get(session.session_id, vault_root=vault_root)
     if known and known.get("path") != str(relpath):
         (vault_root / known["path"]).unlink(missing_ok=True)  # タイトル変更で移動
 

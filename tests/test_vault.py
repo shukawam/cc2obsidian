@@ -35,7 +35,8 @@ class WriteNoteTest(unittest.TestCase):
 
     def test_records_state(self):
         vault.write_note(self.root, make_session(), self.state, 100.0)
-        self.assertEqual(self.state.get("abc12345-0000")["source_mtime"], 100.0)
+        entry = self.state.get("abc12345-0000", vault_root=self.root)
+        self.assertEqual(entry["source_mtime"], 100.0)
 
     def test_rewriting_same_session_overwrites_in_place(self):
         vault.write_note(self.root, make_session(), self.state, 100.0)
@@ -56,6 +57,30 @@ class WriteNoteTest(unittest.TestCase):
         self.assertTrue(out.name.endswith("-bbbbbbbb.md"))
         notes = list((self.root / "Notes" / "2026-08-23").glob("*.md"))
         self.assertEqual(len(notes), 2)
+
+    def test_stale_cross_vault_entry_does_not_clobber_unrelated_note(self):
+        # session X was previously converted into a different Vault (vault_a).
+        # Its state entry, if read without Vault awareness, would look like
+        # "this session already lives at <relpath> in *this* Vault" and skip
+        # the collision check entirely.
+        vault_a = self.root / "vault_a"
+        vault_b = self.root / "vault_b"
+        session_x = make_session(session_id="xxxxxxxx-0000", title="タイトル")
+        relpath = slugs.note_relpath(session_x.started_at, session_x.project,
+                                      session_x.title, session_x.session_id)
+        self.state.put("xxxxxxxx-0000", str(relpath), 100.0, vault_root=vault_a)
+
+        # vault_b already holds an *unrelated* session's note at that same path.
+        unrelated_path = vault_b / relpath
+        unrelated_path.parent.mkdir(parents=True, exist_ok=True)
+        unrelated_path.write_text("UNRELATED NOTE CONTENT", encoding="utf-8")
+
+        out = vault.write_note(vault_b, session_x, self.state, 200.0)
+
+        self.assertEqual(unrelated_path.read_text(encoding="utf-8"), "UNRELATED NOTE CONTENT")
+        self.assertNotEqual(out, unrelated_path)
+        self.assertTrue(out.name.endswith("-xxxxxxxx.md"))
+        self.assertIn("タイトル", out.read_text(encoding="utf-8"))
 
     def test_dry_run_writes_nothing(self):
         out = vault.write_note(self.root, make_session(), self.state, 100.0, dry_run=True)

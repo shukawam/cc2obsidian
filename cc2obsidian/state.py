@@ -22,8 +22,15 @@ class State:
             except (json.JSONDecodeError, OSError):
                 self._data = {}  # 壊れた state は捨てて作り直す
 
-    def get(self, session_id: str) -> dict | None:
-        return self._data.get(session_id)
+    def get(self, session_id: str, vault_root=None) -> dict | None:
+        entry = self._data.get(session_id)
+        if entry is None:
+            return None
+        # 記録された Vault と問い合わせ元の Vault が違えば、そのエントリは
+        # この Vault にとって存在しないものとして扱う（needs_update と同じ規約）。
+        if entry.get("vault") != _normalize_vault(vault_root):
+            return None
+        return entry
 
     def needs_update(self, session_id: str, source_mtime: float, vault_root=None) -> bool:
         entry = self._data.get(session_id)

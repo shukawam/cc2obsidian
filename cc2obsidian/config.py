@@ -6,7 +6,7 @@ DEFAULT_VAULT = "~/private/obsidian/Obsidian"
 
 
 def vault_path() -> Path:
-    return Path(os.environ.get("CC2OBSIDIAN_VAULT", DEFAULT_VAULT)).expanduser()
+    return Path(os.environ.get("CC2OBSIDIAN_VAULT", DEFAULT_VAULT)).expanduser().resolve()
 
 
 def state_path() -> Path:

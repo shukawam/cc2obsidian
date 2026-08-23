@@ -69,6 +69,16 @@ class StateTest(unittest.TestCase):
         st._data["s1"] = {"path": "x.md", "source_mtime": 100.0}  # no vault key, as an older version wrote it
         self.assertTrue(st.needs_update("s1", 100.0, vault_root="/vault/a"))
 
+    def test_get_returns_entry_for_its_own_vault(self):
+        st = State(self.path)
+        st.put("s1", "x.md", 100.0, vault_root="/vault/a")
+        self.assertEqual(st.get("s1", vault_root="/vault/a")["path"], "x.md")
+
+    def test_get_returns_none_for_a_different_vault(self):
+        st = State(self.path)
+        st.put("s1", "x.md", 100.0, vault_root="/vault/a")
+        self.assertIsNone(st.get("s1", vault_root="/vault/b"))
+
 
 if __name__ == "__main__":
     unittest.main()
