@@ -61,10 +61,15 @@ def _note_paths(vault_root: Path, since_days: int) -> list[Path]:
     if not notes_dir.is_dir():
         return []
     cutoff = time.time() - since_days * 86400
-    paths = [
-        p for p in notes_dir.rglob("*.md")
-        if p.parent.name != "weekly" and p.stat().st_mtime >= cutoff
-    ]
+    paths = []
+    for p in notes_dir.rglob("*.md"):
+        if p.parent.name == "weekly":
+            continue
+        try:
+            if p.stat().st_mtime >= cutoff:
+                paths.append(p)
+        except OSError:
+            continue
     return sorted(paths)
 
 
@@ -74,8 +79,13 @@ def build_digest(vault_root: Path, since_days: int) -> str:
         return f"# セッションダイジェスト（直近 {since_days} 日）\n\n対象なし\n"
 
     blocks = [f"# セッションダイジェスト（直近 {since_days} 日 / {len(paths)} セッション）", ""]
+    skipped = 0
     for path in paths:
-        text = path.read_text(encoding="utf-8")
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            skipped += 1
+            continue
         fields = parse_frontmatter(text)
         meta = " / ".join(f"{k}={fields[k]}" for k in DIGEST_FIELDS if k in fields)
         blocks.append(f"## [[{path.stem}]]")
@@ -85,4 +95,6 @@ def build_digest(vault_root: Path, since_days: int) -> str:
         for turn in extract_user_turns(text):
             blocks.append(f"- {turn}")
         blocks.append("")
+    if skipped > 0:
+        blocks.append(f"（読み取れなかったノート: {skipped} 件）")
     return "\n".join(blocks) + "\n"

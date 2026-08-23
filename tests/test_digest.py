@@ -110,6 +110,14 @@ class BuildDigestTest(unittest.TestCase):
     def test_empty_vault_says_so(self):
         self.assertIn("対象なし", digest.build_digest(self.root, since_days=7))
 
+    def test_unreadable_note_is_skipped_without_aborting(self):
+        (self.notes / "0801-demo-スキル作成相談.md").write_text(NOTE, encoding="utf-8")
+        (self.notes / "0900-demo-壊れた.md").write_bytes(b"---\ndate: 2026-08-23\n---\n\xff\xfe invalid")
+        out = digest.build_digest(self.root, since_days=3650)
+        self.assertIn("最初の質問です", out)
+        self.assertIn("読み取れなかったノート: 1 件", out)
+        self.assertNotIn("壊れた", out)
+
 
 if __name__ == "__main__":
     unittest.main()
