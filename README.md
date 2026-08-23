@@ -17,7 +17,13 @@ Claude Code のセッションを Obsidian Vault へ記録し、週次で振り�
 
 ```json
 "hooks": {
-  "SessionEnd": ["python3 ~/work/cc2obsidian/scripts/cc2obsidian.py hook"]
+  "SessionEnd": [
+    {
+      "hooks": [
+        { "type": "command", "command": "python3 ~/work/cc2obsidian/scripts/cc2obsidian.py hook" }
+      ]
+    }
+  ]
 }
 ```
 
