@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from cc2obsidian import slugs, vault
 from cc2obsidian.model import Session, Turn
@@ -81,6 +82,46 @@ class WriteNoteTest(unittest.TestCase):
         self.assertNotEqual(out, unrelated_path)
         self.assertTrue(out.name.endswith("-xxxxxxxx.md"))
         self.assertIn("タイトル", out.read_text(encoding="utf-8"))
+
+    def test_own_note_recovered_via_frontmatter_when_state_is_lost(self):
+        # State was lost (e.g. an OSError while reading it, or it simply
+        # never got written). The Vault already holds this session's own
+        # note. Without consulting the note's own session_id frontmatter,
+        # the code can only see "some file is already there" and
+        # disambiguates, permanently duplicating the note.
+        session = make_session(session_id="abc12345-0000", title="タイトル")
+        vault.write_note(self.root, session, self.state, 100.0)
+
+        lost_state = State(self.root / "nonexistent-state.json")
+        out = vault.write_note(self.root, session, lost_state, 200.0)
+
+        notes = list((self.root / "Notes" / "2026-08-23").glob("*.md"))
+        self.assertEqual(len(notes), 1)
+        self.assertFalse(out.name.endswith("-abc12345.md"))
+
+    def test_does_not_delete_a_different_sessions_note_at_a_shared_state_key(self):
+        # Simulate a state entry whose recorded path actually belongs to a
+        # different session (e.g. a hand-edited entry, or the empty-
+        # session_id shared-key case). write_note must verify ownership via
+        # the target file's own frontmatter before unlinking it.
+        unrelated = make_session(session_id="zzzzzzzz-9999", title="他人のノート")
+        unrelated_path = vault.write_note(self.root, unrelated, self.state, 50.0)
+
+        session = make_session(session_id="abc12345-0000", title="自分のノート")
+        self.state.put(session.session_id, str(unrelated_path.relative_to(self.root)),
+                        100.0, vault_root=self.root)
+
+        vault.write_note(self.root, session, self.state, 200.0)
+
+        self.assertTrue(unrelated_path.exists())
+        self.assertIn("他人のノート", unrelated_path.read_text(encoding="utf-8"))
+
+    def test_failed_write_preserves_old_note_on_title_change(self):
+        first = vault.write_note(self.root, make_session(title="旧題"), self.state, 100.0)
+        with mock.patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                vault.write_note(self.root, make_session(title="新題"), self.state, 200.0)
+        self.assertTrue(first.exists())
 
     def test_dry_run_writes_nothing(self):
         out = vault.write_note(self.root, make_session(), self.state, 100.0, dry_run=True)

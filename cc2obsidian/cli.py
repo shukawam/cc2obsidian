@@ -69,42 +69,47 @@ def cmd_backfill(args) -> int:
     vault_root = config.vault_path()
 
     converted = skipped = failed = 0
-    for path in transcripts:
-        try:
-            # Stat once and keep the mtime.
-            mtime = path.stat().st_mtime
+    try:
+        for path in transcripts:
+            try:
+                # Stat once and keep the mtime.
+                mtime = path.stat().st_mtime
 
-            # Cheap pre-check: if filename is the session ID (normal case),
-            # this skips without parsing. If not, it returns True and we proceed.
-            # This is the fast path that avoids parsing when nothing changed.
-            if not st.needs_update(path.stem, mtime, vault_root=vault_root):
-                skipped += 1
-                continue
+                # Cheap pre-check: if filename is the session ID (normal case),
+                # this skips without parsing. If not, it returns True and we proceed.
+                # This is the fast path that avoids parsing when nothing changed.
+                if not st.needs_update(path.stem, mtime, vault_root=vault_root):
+                    skipped += 1
+                    continue
 
-            # Parse the transcript to get the authoritative session_id.
-            session = parse_transcript(path)
-            if session is None:
-                skipped += 1
-                continue
+                # Parse the transcript to get the authoritative session_id.
+                session = parse_transcript(path)
+                if session is None:
+                    skipped += 1
+                    continue
 
-            # Confirm with the authoritative key before converting.
-            if not st.needs_update(session.session_id, mtime, vault_root=vault_root):
-                skipped += 1
-                continue
+                # Confirm with the authoritative key before converting.
+                if not st.needs_update(session.session_id, mtime, vault_root=vault_root):
+                    skipped += 1
+                    continue
 
-            # Write directly with the session we already have, avoiding re-parse.
-            result = write_note(vault_root, session, st, mtime, dry_run=args.dry_run)
-            if result is not None:
-                converted += 1
-            else:
-                skipped += 1
-        except Exception as exc:
-            failed += 1
-            log_error(f"backfill failed for {path}: {exc!r}")
-            print(f"  失敗: {path} ({exc!r})", file=sys.stderr)
-
-    if not args.dry_run:
-        st.save()
+                # Write directly with the session we already have, avoiding re-parse.
+                result = write_note(vault_root, session, st, mtime, dry_run=args.dry_run)
+                if result is not None:
+                    converted += 1
+                else:
+                    skipped += 1
+            except Exception as exc:
+                failed += 1
+                log_error(f"backfill failed for {path}: {exc!r}")
+                print(f"  失敗: {path} ({exc!r})", file=sys.stderr)
+    finally:
+        # KeyboardInterrupt (and other BaseException) skips the `except
+        # Exception` above and unwinds past the loop. Persist whatever was
+        # already converted so an interrupted run doesn't duplicate notes
+        # on retry. --dry-run still writes nothing, interrupted or not.
+        if not args.dry_run:
+            st.save()
 
     label = "(dry-run) " if args.dry_run else ""
     print(f"{label}変換 {converted} / スキップ {skipped} / 失敗 {failed}"

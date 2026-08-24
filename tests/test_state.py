@@ -21,6 +21,15 @@ class StateTest(unittest.TestCase):
         self.path.write_text("{ broken", encoding="utf-8")
         self.assertIsNone(State(self.path).get("nope"))
 
+    def test_oserror_reading_state_propagates(self):
+        # A directory where a file is expected: read_text() raises OSError
+        # (IsADirectoryError). Unlike malformed JSON, this must not be
+        # silently swallowed into an empty state — that would make save()
+        # clobber a state file we merely failed to *read*.
+        self.path.mkdir()
+        with self.assertRaises(OSError):
+            State(self.path)
+
     def test_put_then_get_roundtrips_through_disk(self):
         st = State(self.path)
         st.put("s1", "Notes/2026-08-23/a.md", 123.0)
@@ -78,6 +87,23 @@ class StateTest(unittest.TestCase):
         st = State(self.path)
         st.put("s1", "x.md", 100.0, vault_root="/vault/a")
         self.assertIsNone(st.get("s1", vault_root="/vault/b"))
+
+    def test_save_merges_a_concurrent_writers_entries(self):
+        # Two State instances both load the (empty) file. One writes s2 and
+        # saves first (e.g. the hook, mid-session). The other -- which never
+        # saw s2 -- then writes s1 and saves. Without a merge, the second
+        # save would dump only {s1}, permanently losing s2.
+        a = State(self.path)
+        b = State(self.path)
+        a.put("s1", "a.md", 1.0)
+        b.put("s2", "b.md", 2.0)
+
+        b.save()
+        a.save()
+
+        merged = State(self.path)
+        self.assertEqual(merged.get("s1")["path"], "a.md")
+        self.assertEqual(merged.get("s2")["path"], "b.md")
 
 
 if __name__ == "__main__":

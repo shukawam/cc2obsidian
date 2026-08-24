@@ -51,6 +51,29 @@ ls
 二つ目の質問です
 """
 
+NOTE_WITH_HEADING_IN_USER_BODY = """---
+date: 2026-08-23
+time: "08:01"
+project: demo
+session_id: abc12345-0000
+title: Report
+duration_min: 5
+user_turns: 1
+model: claude-opus-5
+tool_counts: {}
+tags: [claude-code/session, project/demo]
+---
+
+# Report
+
+## 👤 08:01
+## Findings
+本文の続きです
+
+## 🤖 08:02
+了解しました
+"""
+
 
 class FrontmatterTest(unittest.TestCase):
     def test_reads_key_values(self):
@@ -76,6 +99,13 @@ class UserTurnsTest(unittest.TestCase):
         self.assertNotIn("回答します", joined)
         self.assertNotIn("内心の声", joined)
         self.assertNotIn("ls", joined)
+
+    def test_a_markdown_heading_pasted_by_the_user_does_not_truncate_the_turn(self):
+        # render.py only ever emits "## 👤 HH:MM" / "## 🤖 HH:MM" headings.
+        # A "## " line inside the user's own pasted text is not a turn
+        # boundary and must not end the buffer early.
+        turns = digest.extract_user_turns(NOTE_WITH_HEADING_IN_USER_BODY)
+        self.assertTrue(any("本文の続きです" in t for t in turns))
 
 
 class BuildDigestTest(unittest.TestCase):
@@ -115,6 +145,12 @@ class BuildDigestTest(unittest.TestCase):
     def test_empty_vault_says_so(self):
         self.assertIn("対象なし", digest.build_digest(self.root, since_days=7))
 
+    def test_user_turn_containing_a_heading_is_not_truncated_in_the_digest(self):
+        (self.notes / "0801-demo-report.md").write_text(
+            NOTE_WITH_HEADING_IN_USER_BODY, encoding="utf-8")
+        out = digest.build_digest(self.root, since_days=3650)
+        self.assertIn("本文の続きです", out)
+
     def test_unreadable_note_is_skipped_without_aborting(self):
         (self.notes / "0801-demo-スキル作成相談.md").write_text(NOTE, encoding="utf-8")
         (self.notes / "0900-demo-壊れた.md").write_bytes(b"---\ndate: 2026-08-23\n---\n\xff\xfe invalid")
@@ -123,6 +159,33 @@ class BuildDigestTest(unittest.TestCase):
         self.assertIn("読み取れなかったノート: 1 件", out)
         self.assertIn("1 セッション", out)
         self.assertNotIn("壊れた", out)
+
+
+class HeadingSyncTest(unittest.TestCase):
+    """digest.py の見出し正規表現は render.py が実際に出す形式とだけ一致すべき。
+
+    ずれると、ユーザーの貼り付けた本文中の "## " 行を見出しと誤認して
+    ターン本文を切り詰めてしまう（Important 4 のバグそのもの）。
+    """
+
+    def test_regexes_match_what_render_actually_emits(self):
+        from datetime import datetime
+
+        from cc2obsidian.model import Turn
+        from cc2obsidian.render import _render_turn
+
+        ts = datetime(2026, 8, 23, 8, 1, tzinfo=JST)
+        user_heading = _render_turn(Turn(role="user", ts=ts, text="hi")).splitlines()[0]
+        assistant_heading = _render_turn(Turn(role="assistant", ts=ts, text="hi")).splitlines()[0]
+
+        self.assertTrue(digest._USER_HEADING.match(user_heading))
+        self.assertFalse(digest._USER_HEADING.match(assistant_heading))
+        self.assertTrue(digest._ANY_HEADING.match(user_heading))
+        self.assertTrue(digest._ANY_HEADING.match(assistant_heading))
+
+    def test_regexes_do_not_match_a_heading_like_line_in_free_text(self):
+        self.assertFalse(digest._ANY_HEADING.match("## Findings"))
+        self.assertFalse(digest._USER_HEADING.match("## Findings"))
 
 
 class DateDirectoryFilterTest(unittest.TestCase):

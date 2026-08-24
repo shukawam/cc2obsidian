@@ -3,11 +3,15 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from cc2obsidian.render import ROLE_HEADINGS, heading_regex
 from cc2obsidian.slugs import JST
 
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
-_USER_HEADING = re.compile(r"^## 👤 ")
-_ANY_HEADING = re.compile(r"^## ")
+# render.py が実際に出す見出し形式 ("## 👤 HH:MM" / "## 🤖 HH:MM") から
+# 正規表現を組み立てる。render.py 側の見出し形式が変われば、ここも
+# 自動的に追随する（HeadingSyncTest がこの結びつきを検査する）。
+_USER_HEADING = re.compile(heading_regex(ROLE_HEADINGS["user"]))
+_ANY_HEADING = re.compile(heading_regex())
 _DETAILS_OPEN = re.compile(r"^<details")
 _DETAILS_CLOSE = re.compile(r"^</details>")
 

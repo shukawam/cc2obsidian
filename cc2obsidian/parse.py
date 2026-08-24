@@ -182,6 +182,9 @@ def parse_transcript(path: Path) -> Session | None:
     if not turns:
         return None
 
+    if not session_id:
+        return None  # sessionId を持つエントリが一つも無い = 解析失敗として扱う
+
     if not title:
         first_user = next((t.text for t in turns if t.role == "user"), "")
         title = first_user.strip()[:TITLE_FALLBACK_LEN] or "untitled"

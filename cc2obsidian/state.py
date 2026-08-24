@@ -15,11 +15,16 @@ class State:
         self.path = Path(path)
         self._data: dict[str, dict] = {}
         if self.path.exists():
+            # OSError（読めない）はここで握りつぶさない。握りつぶすと、
+            # 次の save() が「空の状態」を正規の内容として書き出してしまい、
+            # 既存のエントリを丸ごと消してしまう。読めないなら諦めて例外を
+            # 上に伝える方が安全。JSON が壊れているだけなら、そのファイルは
+            # もう使えないので空として作り直す。
             try:
                 loaded = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
                     self._data = loaded
-            except (json.JSONDecodeError, OSError):
+            except json.JSONDecodeError:
                 self._data = {}  # 壊れた state は捨てて作り直す
 
     def get(self, session_id: str, vault_root=None) -> dict | None:
@@ -52,11 +57,25 @@ class State:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # 書く直前にディスク上の内容を読み直し、自分がロードしてから他の
+        # プロセス（hook / backfill の別実行）が書いたかもしれないエントリを
+        # 下敷きにしてマージする。キーが競合したら自分（メモリ上）の値が勝つ。
+        # これが無いと「後勝ち」の丸ごと上書きになり、片方の書き込みが
+        # 消える。
+        merged = dict(self._data)
+        try:
+            on_disk = json.loads(self.path.read_text(encoding="utf-8"))
+            if isinstance(on_disk, dict):
+                merged = {**on_disk, **self._data}
+        except (OSError, json.JSONDecodeError):
+            pass  # 読めない/壊れているなら、自分の内容だけで書く
+
         fd, tmp = tempfile.mkstemp(dir=self.path.parent, suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(self._data, fh, ensure_ascii=False, indent=2)
+                json.dump(merged, fh, ensure_ascii=False, indent=2)
             os.replace(tmp, self.path)
+            self._data = merged
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise

@@ -211,6 +211,14 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(s.user_turns, 2)
         self.assertTrue(any("<command-name>" in t.text for t in s.turns))
 
+    def test_returns_none_when_no_entry_carries_a_session_id(self):
+        p = write_jsonl([
+            {"cwd": "/Users/x/work/demo", "isSidechain": False,
+             "type": "user", "timestamp": "2026-08-22T23:01:00.000Z",
+             "message": {"role": "user", "content": "こんにちは"}},
+        ])
+        self.assertIsNone(parse.parse_transcript(p))
+
     def test_malformed_lines_are_skipped(self):
         p = write_jsonl([user_entry("ok")])
         with p.open("a", encoding="utf-8") as fh:

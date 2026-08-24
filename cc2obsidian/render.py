@@ -82,6 +82,23 @@ _BACKTICKS = re.compile(r"`+")
 
 ROLE_HEADINGS = {"user": "👤", "assistant": "🤖"}
 
+# _render_turn が実際に出す見出し行の形式: "## <icon> HH:MM"。
+# digest.py はターンの切れ目をこの形式そのものから判定する（"## " で始まる
+# だけの緩い判定だと、ユーザーが貼り付けた本文中の Markdown 見出しを
+# ターン境界と誤認してしまう）。
+_HEADING_TIME = r"\d\d:\d\d"
+
+
+def heading_regex(icon: str | None = None) -> str:
+    """見出し行にマッチする正規表現文字列を返す。
+
+    icon を渡すとその役割（例: ROLE_HEADINGS["user"]）の見出しだけに、
+    省略すると _render_turn が出すどの役割の見出しにもマッチする。
+    """
+    icons = [icon] if icon is not None else list(ROLE_HEADINGS.values())
+    alt = "|".join(re.escape(i) for i in icons)
+    return rf"^## ({alt}) {_HEADING_TIME}\s*$"
+
 
 def _fence_for(text: str) -> str:
     """本文に含まれるバッククォート連長より長いフェンスを返す。"""

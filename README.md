@@ -13,18 +13,16 @@ Claude Code のセッションを Obsidian Vault へ記録し、週次で振り�
 
 ノート取得には `SessionEnd` hook の登録が必要。
 
-`~/.claude/settings.json` の `hooks` セクション下に次を追加する。既存の hook エントリは必ず保持すること。
+`~/.claude/settings.json` の `hooks` セクション下に次のキーをマージする。既に `hooks` セクションがある場合は、その中身を丸ごと置き換えず、既存の hook エントリ（例: `PreToolUse` など）は必ず保持したまま `SessionEnd` キーだけを追加・マージすること。
 
 ```json
-"hooks": {
-  "SessionEnd": [
-    {
-      "hooks": [
-        { "type": "command", "command": "python3 ~/work/cc2obsidian/scripts/cc2obsidian.py hook" }
-      ]
-    }
-  ]
-}
+"SessionEnd": [
+  {
+    "hooks": [
+      { "type": "command", "command": "python3 ~/work/cc2obsidian/scripts/cc2obsidian.py hook" }
+    ]
+  }
+]
 ```
 
 推奨手順: `backfill --all --dry-run` で変換内容を確認 → `backfill --all` で既存ログを取り込む → hook を登録。この順序で、変換に問題があれば hook 登録前に検出される。

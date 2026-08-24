@@ -212,6 +212,41 @@ class BackfillTest(unittest.TestCase):
             self.assertEqual(cli.main(["backfill", "--all"]), 0)
         self.assertEqual(len(list((other_vault / "Notes").rglob("*.md"))), 1)
 
+    def test_keyboard_interrupt_still_persists_state_for_notes_already_written(self):
+        # KeyboardInterrupt is a BaseException, not an Exception, so the
+        # per-file `except Exception` does not catch it. If state is only
+        # saved after the loop finishes normally, every note written before
+        # the interrupt duplicates on the next run.
+        def entries_for(session_id):
+            return [
+                {**ENTRY_USER, "sessionId": session_id},
+                {**ENTRY_ASSISTANT, "sessionId": session_id},
+            ]
+
+        write_transcript(self.projects / "proj-a", "a.jsonl", entries_for("aaaaaaaa-0000"))
+        write_transcript(self.projects / "proj-b", "b.jsonl", entries_for("bbbbbbbb-0000"))
+
+        original_write_note = cli.write_note
+        call_count = 0
+
+        def flaky_write_note(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise KeyboardInterrupt()
+            return original_write_note(*a, **kw)
+
+        with mock.patch("cc2obsidian.cli.write_note", side_effect=flaky_write_note):
+            with self.assertRaises(KeyboardInterrupt):
+                cli.main(["backfill", "--all"])
+
+        # The first transcript (proj-a) was converted before the interrupt;
+        # its state entry must have been persisted despite never reaching
+        # the loop's normal end.
+        self.assertEqual(len(list((self.vault / "Notes").rglob("*.md"))), 1)
+        st = State(self.root / "state.json")
+        self.assertIsNotNone(st.get("aaaaaaaa-0000", vault_root=self.vault))
+
     def test_backfill_does_not_parse_unchanged_transcripts(self):
         # Use default filename "abc12345-0000.jsonl" which matches the session_id,
         # so the cheap pre-check with path.stem will work and skip without parsing.
