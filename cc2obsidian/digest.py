@@ -1,7 +1,9 @@
 """週次分析のために、ノート群から軽量なダイジェストを作る。"""
 import re
-import time
+from datetime import datetime, timedelta
 from pathlib import Path
+
+from cc2obsidian.slugs import JST
 
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 _USER_HEADING = re.compile(r"^## 👤 ")
@@ -57,22 +59,33 @@ def extract_user_turns(text: str) -> list[str]:
 
 
 def _note_paths(vault_root: Path, since_days: int) -> tuple[list[Path], int]:
+    """`Notes/<YYYY-MM-DD>/` の日付（= セッションが実際に行われた日、JST）で絞り込む。
+
+    ファイルの mtime は使わない — backfill --all はすべてのノートを「今」
+    書き直すため、mtime ベースのフィルタは --since N を実質無視してしまう。
+    """
     notes_dir = Path(vault_root) / "Notes"
     if not notes_dir.is_dir():
         return [], 0
-    cutoff = time.time() - since_days * 86400
+    cutoff_date = datetime.now(JST).date() - timedelta(days=since_days)
     paths = []
-    stat_skipped = 0
+    skipped = 0
     for p in notes_dir.rglob("*.md"):
         if p.parent.name == "weekly":
             continue
         try:
-            if p.stat().st_mtime >= cutoff:
-                paths.append(p)
-        except OSError:
-            stat_skipped += 1
+            note_date = datetime.strptime(p.parent.name, "%Y-%m-%d").date()
+        except ValueError:
+            skipped += 1
             continue
-    return sorted(paths), stat_skipped
+        try:
+            p.stat()
+        except OSError:
+            skipped += 1
+            continue
+        if note_date >= cutoff_date:
+            paths.append(p)
+    return sorted(paths), skipped
 
 
 def build_digest(vault_root: Path, since_days: int) -> str:
