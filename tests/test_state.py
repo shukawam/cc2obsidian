@@ -10,9 +10,17 @@ class StateTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.path = Path(self.dir.name) / "state.json"
+        self.vault = Path(self.dir.name) / "vault"
 
     def tearDown(self):
         self.dir.cleanup()
+
+    def _note(self, relpath: str) -> Path:
+        """Vault に実体のノートを置く。needs_update は実体の有無も見る。"""
+        note = self.vault / relpath
+        note.parent.mkdir(parents=True, exist_ok=True)
+        note.write_text("x", encoding="utf-8")
+        return note
 
     def test_missing_file_starts_empty(self):
         self.assertIsNone(State(self.path).get("nope"))
@@ -69,9 +77,10 @@ class StateTest(unittest.TestCase):
         self.assertTrue(st.needs_update("s1", 100.0, vault_root="/vault/b"))
 
     def test_same_vault_and_unchanged_mtime_needs_no_update(self):
+        self._note("x.md")
         st = State(self.path)
-        st.put("s1", "x.md", 100.0, vault_root="/vault/a")
-        self.assertFalse(st.needs_update("s1", 100.0, vault_root="/vault/a"))
+        st.put("s1", "x.md", 100.0, vault_root=self.vault)
+        self.assertFalse(st.needs_update("s1", 100.0, vault_root=self.vault))
 
     def test_legacy_entry_without_vault_needs_update(self):
         st = State(self.path)
@@ -104,6 +113,34 @@ class StateTest(unittest.TestCase):
         merged = State(self.path)
         self.assertEqual(merged.get("s1")["path"], "a.md")
         self.assertEqual(merged.get("s2")["path"], "b.md")
+    def test_save_does_not_revert_a_key_another_writer_updated(self):
+        # A と B が同じ内容をロードする。B が X を新しい値へ更新して保存。
+        # そのあと A が「X には触れず」Y だけ足して保存する。A が持っている
+        # X はロード時点の古い値なので、self._data を丸ごと上書きに使うと
+        # B の更新が巻き戻る。書き戻してよいのは自分が触ったキーだけ。
+        seed = State(self.path)
+        seed.put("X", "old.md", 1.0)
+        seed.save()
+
+        a = State(self.path)
+        b = State(self.path)
+        b.put("X", "new.md", 2.0)
+        b.save()
+        a.put("Y", "y.md", 3.0)
+        a.save()
+
+        merged = State(self.path)
+        self.assertEqual(merged.get("X")["path"], "new.md")
+        self.assertEqual(merged.get("Y")["path"], "y.md")
+    def test_needs_update_when_the_recorded_note_is_gone(self):
+        # ノートを消したら作り直せるべき。state だけが残っていると
+        # 「変換済み」と判定され、二度と復元されない。
+        st = State(self.path)
+        st.put("s1", "Notes/2026-08-23/x.md", 100.0, vault_root=self.vault)
+        self.assertTrue(st.needs_update("s1", 100.0, vault_root=self.vault))
+
+        self._note("Notes/2026-08-23/x.md")
+        self.assertFalse(st.needs_update("s1", 100.0, vault_root=self.vault))
 
 
 if __name__ == "__main__":

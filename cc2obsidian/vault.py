@@ -1,4 +1,6 @@
 """Vault へのノート書き込み。冪等性とファイル名衝突を扱う。"""
+import os
+import tempfile
 from pathlib import Path
 
 from .digest import parse_frontmatter
@@ -41,6 +43,25 @@ def _target_relpath(vault_root: Path, session: Session, st: State) -> Path:
     return relpath
 
 
+def _atomic_write(target: Path, content: str) -> None:
+    """同一ディレクトリの一時ファイルへ書いてから置き換える。
+
+    write_text は既存ファイルをその場で切り詰めるため、同じパスを更新する
+    途中で失敗すると旧ノートまで失われる。置き換え方式なら、失敗しても
+    ディスク上には元のノートがそのまま残る。
+    """
+    fd, tmp = tempfile.mkstemp(dir=target.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def write_note(
     vault_root: Path,
     session: Session,
@@ -50,6 +71,11 @@ def write_note(
 ) -> Path:
     relpath = _target_relpath(vault_root, session, st)
     target = vault_root / relpath
+
+    # dry-run でもレンダリングまでは通す。README は dry-run を「変換に
+    # 問題があれば hook 登録前に検出する」手順として案内しており、
+    # 描画を飛ばすとその保証が無くなる。
+    content = render_note(session)
 
     if dry_run:
         return target
@@ -68,7 +94,7 @@ def write_note(
     # 新しいノートを書き切ってから古いノートを消す。逆順だと、書き込みが
     # 失敗した場合に新旧どちらのノートも残らなくなる。
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(render_note(session), encoding="utf-8")
+    _atomic_write(target, content)
 
     if old_path is not None:
         old_path.unlink(missing_ok=True)

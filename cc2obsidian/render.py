@@ -1,4 +1,5 @@
 """Session 中間表現を Obsidian 向け Markdown へ描画する。"""
+import json
 import re
 
 from .model import Session, ToolCall, Turn
@@ -7,34 +8,74 @@ from .slugs import customer_from_cwd
 HEAD_LINES = 40
 TAIL_LINES = 10
 TRUNCATE_THRESHOLD = 60
+# 行数だけでは足りない。実ログには 60 行以下で 1 万文字超の tool result や、
+# 87,831 文字の tool input が実在する。1 行が極端に長い出力を素通しさせない。
+MAX_CHARS = 20_000
 
 _YAML_SPECIAL = set(':#[]{}&*!|>%@`"\'')
+# 引用しないと文字列以外の型として読まれてしまう平文スカラー。
+_FLOW_SPECIAL = set(",[]{}")
+_YAML_TYPED = re.compile(
+    r"\A(?:true|false|yes|no|on|off|null|~"
+    r"|[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?"
+    r"|\d{4}-\d{2}-\d{2}.*)\Z",
+    re.IGNORECASE,
+)
 
 
-def truncate_output(text: str) -> str:
-    """長いツール出力を先頭と末尾だけ残して切り詰める。"""
+def truncate_output(text: str, max_chars: int = MAX_CHARS) -> str:
+    """長いツール出力を先頭と末尾だけ残して切り詰める。
+
+    行数と文字数の両方で抑える。行数だけだと、1 行が数十万文字ある出力が
+    そのままノートに載ってしまう。
+    """
     lines = text.splitlines()
-    if len(lines) <= TRUNCATE_THRESHOLD:
+    if len(lines) > TRUNCATE_THRESHOLD:
+        dropped = len(lines) - HEAD_LINES - TAIL_LINES
+        text = "\n".join(
+            lines[:HEAD_LINES] + [f"… {dropped} 行省略 …"] + lines[-TAIL_LINES:]
+        )
+    if len(text) <= max_chars:
         return text
-    dropped = len(lines) - HEAD_LINES - TAIL_LINES
-    return "\n".join(
-        lines[:HEAD_LINES] + [f"… {dropped} 行省略 …"] + lines[-TAIL_LINES:]
-    )
+    head = max_chars * 4 // 5
+    tail = max_chars - head
+    dropped = len(text) - head - tail
+    return f"{text[:head]}\n… {dropped} 文字省略 …\n{text[-tail:]}"
 
 
 def yaml_scalar(value: str) -> str:
-    """YAML で誤読される文字を含むときだけ引用する。"""
+    """YAML で誤読される値だけを引用する。
+
+    引用形は json.dumps に任せる。改行・タブ・引用符・バックスラッシュを
+    まとめて正しくエスケープでき、結果は YAML の double-quoted スカラーと
+    しても妥当なので、外部依存なしで安全側に倒せる。
+    """
     text = str(value)
     needs_quote = (
         not text
+        or text != text.strip()              # 前後の空白は引用しないと消える
         or text[0] in _YAML_SPECIAL
+        or text[0] == "-"                    # リスト項目として読まれる
         or any(ch in text for ch in (": ", " #"))
         or text.endswith(":")
+        or any(ch in text for ch in "\n\r\t")
+        or _YAML_TYPED.match(text)           # bool / 数値 / 日付に化ける
     )
     if not needs_quote:
         return text
-    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
+    return json.dumps(text, ensure_ascii=False)
+
+
+def yaml_flow_scalar(value: str) -> str:
+    """フロー表記（tags: [a, b] や {k: v}）の中に置くスカラー。
+
+    ',' '[' ']' '{' '}' はフローの中でだけ区切りとして効く。ブロック
+    スカラーの規則（yaml_scalar）では引用されないので、ここで足す。
+    """
+    text = str(value)
+    if any(ch in _FLOW_SPECIAL for ch in text):
+        return json.dumps(text, ensure_ascii=False)
+    return yaml_scalar(text)
 
 
 def _sorted_counts(counts: dict[str, int]) -> list[tuple[str, int]]:
@@ -45,7 +86,7 @@ def _sorted_counts(counts: dict[str, int]) -> list[tuple[str, int]]:
 def _inline_map(counts: dict[str, int]) -> str:
     if not counts:
         return "{}"
-    body = ", ".join(f"{k}: {v}" for k, v in _sorted_counts(counts))
+    body = ", ".join(f"{yaml_flow_scalar(k)}: {v}" for k, v in _sorted_counts(counts))
     return "{" + body + "}"
 
 
@@ -73,7 +114,7 @@ def render_frontmatter(session: Session) -> str:
     if len(models) > 1:
         lines.append(f"models: {_inline_map(session.model_counts)}")
     lines.append(f"tool_counts: {_inline_map(session.tool_counts)}")
-    lines.append(f"tags: [{', '.join(tags)}]")
+    lines.append(f"tags: [{', '.join(yaml_flow_scalar(t) for t in tags)}]")
     lines.append("---")
     return "\n".join(lines) + "\n"
 
@@ -117,7 +158,8 @@ def _render_tool_call(call: ToolCall) -> str:
     parts = [f"<details><summary>{summary}</summary>", ""]
     if call.input_text:
         lang = "bash" if call.tool_name == "Bash" else ""
-        parts.append(_code_block(call.input_text, lang))
+        # 入力も切り詰める。実ログには 87,831 文字の tool input がある。
+        parts.append(_code_block(truncate_output(call.input_text), lang))
         parts.append("")
     result = truncate_output(call.result_text) if call.result_text else "(出力なし)"
     parts.append(_code_block(result))

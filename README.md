@@ -19,11 +19,17 @@ Claude Code のセッションを Obsidian Vault へ記録し、週次で振り�
 "SessionEnd": [
   {
     "hooks": [
-      { "type": "command", "command": "python3 ~/work/cc2obsidian/scripts/cc2obsidian.py hook" }
+      {
+        "type": "command",
+        "command": "python3 ~/work/cc2obsidian/scripts/cc2obsidian.py hook",
+        "timeout": 30
+      }
     ]
   }
 ]
 ```
+
+`timeout` は省略しないこと。`SessionEnd` の hook は既定で **1.5 秒**の予算を共有し、`timeout` を指定した場合だけそこまで（最大 60 秒）引き上げられる。実測では 5.1MB のセッションで 0.1 秒なので通常は足りるが、予算を超えると外部から打ち切られ、`cc2obsidian.log` にも記録が残らない。
 
 推奨手順: `backfill --all --dry-run` で変換内容を確認 → `backfill --all` で既存ログを取り込む → hook を登録。この順序で、変換に問題があれば hook 登録前に検出される。
 
@@ -33,10 +39,13 @@ Claude Code のセッションを Obsidian Vault へ記録し、週次で振り�
 python3 scripts/cc2obsidian.py backfill --all --dry-run   # 変換されるものを確認
 python3 scripts/cc2obsidian.py backfill --all             # 既存ログを全部取り込む
 python3 scripts/cc2obsidian.py backfill --since 7         # 直近 7 日ぶんだけ
+python3 scripts/cc2obsidian.py backfill --all --force     # 変換ロジックを直したあと作り直す
 python3 scripts/cc2obsidian.py digest --since 7           # 週次分析用ダイジェスト
 ```
 
 `SessionEnd` は強制終了時には発火しない。取りこぼしは `backfill` が回収する。
+
+`backfill` は変換に失敗したセッションがあれば終了コード 1 を返す。通常は変換済みのセッションを飛ばすが、`--force` を付けると作り直す（変換ロジックを直したあとに使う）。ノートを削除した場合は `--force` なしでも作り直される。
 
 ## 設定
 

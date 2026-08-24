@@ -14,6 +14,9 @@ class State:
     def __init__(self, path: Path):
         self.path = Path(path)
         self._data: dict[str, dict] = {}
+        # このインスタンスが実際に put したキー。save() で書き戻してよいのは
+        # ここに入っているものだけ。
+        self._dirty: set[str] = set()
         if self.path.exists():
             # OSError（読めない）はここで握りつぶさない。握りつぶすと、
             # 次の save() が「空の状態」を正規の内容として書き出してしまい、
@@ -46,6 +49,12 @@ class State:
         # エントリには vault が無いので、それも不一致（＝要更新）とみなす。
         if entry.get("vault") != _normalize_vault(vault_root):
             return True
+        # 記録があってもノート本体が無ければ作り直す。ノートを消したのに
+        # state が残っていると「変換済み」と判定され、二度と復元されない。
+        relpath = entry.get("path")
+        if vault_root is not None and relpath:
+            if not (Path(vault_root) / relpath).exists():
+                return True
         return source_mtime > entry.get("source_mtime", 0)
 
     def put(self, session_id: str, relpath: str, source_mtime: float, vault_root=None) -> None:
@@ -54,6 +63,7 @@ class State:
             "source_mtime": source_mtime,
             "vault": _normalize_vault(vault_root),
         }
+        self._dirty.add(session_id)
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,11 +72,15 @@ class State:
         # 下敷きにしてマージする。キーが競合したら自分（メモリ上）の値が勝つ。
         # これが無いと「後勝ち」の丸ごと上書きになり、片方の書き込みが
         # 消える。
+        # 書き戻すのは自分が put したキーだけ。self._data を丸ごと重ねると、
+        # ロード時点の古いエントリまで一緒に書き戻してしまい、その間に他の
+        # プロセスが更新したキーが巻き戻る。
+        mine = {k: self._data[k] for k in self._dirty if k in self._data}
         merged = dict(self._data)
         try:
             on_disk = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(on_disk, dict):
-                merged = {**on_disk, **self._data}
+                merged = {**on_disk, **mine}
         except (OSError, json.JSONDecodeError):
             pass  # 読めない/壊れているなら、自分の内容だけで書く
 
@@ -76,6 +90,7 @@ class State:
                 json.dump(merged, fh, ensure_ascii=False, indent=2)
             os.replace(tmp, self.path)
             self._data = merged
+            self._dirty.clear()
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise

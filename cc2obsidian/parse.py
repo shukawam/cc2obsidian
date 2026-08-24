@@ -88,13 +88,30 @@ def _collect_results(entries: list[dict]) -> dict[str, tuple[str, bool]]:
     return results
 
 
+def _attachment_placeholder(block: dict) -> str:
+    """画像・文書ブロックの控え。base64 本体は埋めない。"""
+    source = block.get("source")
+    media = source.get("media_type") if isinstance(source, dict) else None
+    kind = block.get("type")
+    return f"[{kind} {media}]" if media else f"[{kind}]"
+
+
 def _user_text(content) -> str:
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
         return ""
-    parts = [b.get("text", "") for b in content
-             if isinstance(b, dict) and b.get("type") == "text"]
+    parts = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            parts.append(block.get("text", ""))
+        elif btype in ("image", "document"):
+            # 添付だけの発話もターンとして残す。text が無いというだけで
+            # 落とすと「ファイルを貼っただけ」の発話が記録から消える。
+            parts.append(_attachment_placeholder(block))
     return "\n".join(p for p in parts if p)
 
 
@@ -113,72 +130,78 @@ def parse_transcript(path: Path) -> Session | None:
     cwd = ""
 
     for e in entries:
-        etype = e.get("type")
+        # 壊れた 1 エントリでセッション全体を失わない。JSON としては妥当でも
+        # timestamp を欠く／形が違うエントリはありうる。そこで例外を投げると
+        # そのセッションの記録が丸ごと消えるので、そのエントリだけ捨てる。
+        try:
+            etype = e.get("type")
 
-        if etype == "ai-title":
-            title = e.get("aiTitle") or title
-            continue
-        if etype in SKIP_TYPES:
-            continue
-        if etype not in ("user", "assistant"):
-            continue
-
-        session_id = session_id or e.get("sessionId", "")
-        cwd = cwd or e.get("cwd", "")
-        # サブエージェントの発言は会話としては残すが、集計からは外す
-        is_side = bool(e.get("isSidechain"))
-
-        ts = to_jst(e["timestamp"])
-        message = e.get("message", {})
-
-        if etype == "user":
-            if e.get("isMeta"):
+            if etype == "ai-title":
+                title = e.get("aiTitle") or title
                 continue
-            text = _user_text(message.get("content"))
-            if not text.strip():
-                continue  # tool_result だけの user エントリ
-            if text.lstrip().startswith(SLASH_COMMAND_PREFIXES):
-                continue  # スラッシュコマンドの機構であり、ユーザーの発言ではない
-            if not is_side:
-                user_turns += 1
-            turns.append(Turn(role="user", ts=ts, text=text, is_sidechain=is_side))
-            continue
-
-        model = message.get("model")
-        if model and model != SYNTHETIC_MODEL and not is_side:
-            model_counts[model] = model_counts.get(model, 0) + 1
-
-        texts, thoughts, calls = [], [], []
-        for block in message.get("content", []):
-            if not isinstance(block, dict):
+            if etype in SKIP_TYPES:
                 continue
-            btype = block.get("type")
-            if btype == "text":
-                texts.append(block.get("text", ""))
-            elif btype == "thinking":
-                thoughts.append(block.get("thinking", ""))
-            elif btype == "tool_use":
-                name = block.get("name", "unknown")
+            if etype not in ("user", "assistant"):
+                continue
+
+            session_id = session_id or e.get("sessionId", "")
+            cwd = cwd or e.get("cwd", "")
+            # サブエージェントの発言は会話としては残すが、集計からは外す
+            is_side = bool(e.get("isSidechain"))
+
+            ts = to_jst(e["timestamp"])
+            message = e.get("message", {})
+
+            if etype == "user":
+                if e.get("isMeta"):
+                    continue
+                text = _user_text(message.get("content"))
+                if not text.strip():
+                    continue  # tool_result だけの user エントリ
+                if text.lstrip().startswith(SLASH_COMMAND_PREFIXES):
+                    continue  # スラッシュコマンドの機構であり、ユーザーの発言ではない
                 if not is_side:
-                    tool_counts[name] = tool_counts.get(name, 0) + 1
-                tool_input = block.get("input", {})
-                result_text, is_error = results.get(block.get("id"), ("", False))
-                calls.append(ToolCall(
-                    tool_name=name,
-                    summary=_summary_for(name, tool_input),
-                    input_text=_format_input(tool_input),
-                    result_text=result_text,
-                    is_error=is_error,
-                ))
+                    user_turns += 1
+                turns.append(Turn(role="user", ts=ts, text=text, is_sidechain=is_side))
+                continue
 
-        turns.append(Turn(
-            role="assistant", ts=ts,
-            text="\n".join(t for t in texts if t),
-            thinking="\n".join(t for t in thoughts if t),
-            tool_calls=calls,
-            is_sidechain=is_side,
-        ))
+            model = message.get("model")
+            if model and model != SYNTHETIC_MODEL and not is_side:
+                model_counts[model] = model_counts.get(model, 0) + 1
 
+            texts, thoughts, calls = [], [], []
+            for block in message.get("content", []):
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get("type")
+                if btype == "text":
+                    texts.append(block.get("text", ""))
+                elif btype == "thinking":
+                    thoughts.append(block.get("thinking", ""))
+                elif btype == "tool_use":
+                    name = block.get("name", "unknown")
+                    if not is_side:
+                        tool_counts[name] = tool_counts.get(name, 0) + 1
+                    tool_input = block.get("input", {})
+                    result_text, is_error = results.get(block.get("id"), ("", False))
+                    calls.append(ToolCall(
+                        tool_name=name,
+                        summary=_summary_for(name, tool_input),
+                        input_text=_format_input(tool_input),
+                        result_text=result_text,
+                        is_error=is_error,
+                    ))
+
+            turns.append(Turn(
+                role="assistant", ts=ts,
+                text="\n".join(t for t in texts if t),
+                thinking="\n".join(t for t in thoughts if t),
+                tool_calls=calls,
+                is_sidechain=is_side,
+            ))
+
+        except Exception:
+            continue
     if not turns:
         return None
 

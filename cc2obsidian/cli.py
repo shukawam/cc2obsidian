@@ -31,10 +31,15 @@ def convert_one(path: Path, vault_root: Path, st: State, dry_run: bool = False) 
     path = Path(path)
     if not path.is_file():
         return None
+    # mtime はパースの「前」に取る。後で取ると、パースとの隙間に追記された
+    # ぶんを読んでいないのに新しい mtime を記録してしまい、以後スキップされて
+    # その追記が永久に取り込まれない。先に取っておけば、取りこぼしても
+    # 記録が古いままなので次回の backfill が拾い直す。
+    mtime = path.stat().st_mtime
     session = parse_transcript(path)
     if session is None:
         return None
-    return write_note(vault_root, session, st, path.stat().st_mtime, dry_run=dry_run)
+    return write_note(vault_root, session, st, mtime, dry_run=dry_run)
 
 
 def iter_transcripts(projects_root: Path, since_days: int | None) -> list[Path]:
@@ -78,7 +83,7 @@ def cmd_backfill(args) -> int:
                 # Cheap pre-check: if filename is the session ID (normal case),
                 # this skips without parsing. If not, it returns True and we proceed.
                 # This is the fast path that avoids parsing when nothing changed.
-                if not st.needs_update(path.stem, mtime, vault_root=vault_root):
+                if not args.force and not st.needs_update(path.stem, mtime, vault_root=vault_root):
                     skipped += 1
                     continue
 
@@ -89,7 +94,8 @@ def cmd_backfill(args) -> int:
                     continue
 
                 # Confirm with the authoritative key before converting.
-                if not st.needs_update(session.session_id, mtime, vault_root=vault_root):
+                if not args.force and not st.needs_update(session.session_id, mtime,
+                                                          vault_root=vault_root):
                     skipped += 1
                     continue
 
@@ -114,7 +120,9 @@ def cmd_backfill(args) -> int:
     label = "(dry-run) " if args.dry_run else ""
     print(f"{label}変換 {converted} / スキップ {skipped} / 失敗 {failed}"
           f"（対象 {len(transcripts)} 本）")
-    return 0
+    # 失敗を 0 で返すと、スクリプトから回したときに成功と区別できない。
+    # hook と違い backfill は対話的な CLI なので、正直に非ゼロを返す。
+    return 1 if failed else 0
 
 
 def cmd_digest(args) -> int:
@@ -135,6 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument("--since", type=int, metavar="DAYS", default=30,
                        help="直近 N 日を対象にする（既定 30）")
     backfill.add_argument("--dry-run", action="store_true", help="書き込まずに件数だけ出す")
+    backfill.add_argument("--force", action="store_true",
+                          help="変換済みでも作り直す（converter を直したあとに使う）")
     backfill.set_defaults(func=cmd_backfill)
 
     dg = sub.add_parser("digest", help="週次分析用のダイジェストを標準出力へ")

@@ -14,6 +14,42 @@ _USER_HEADING = re.compile(heading_regex(ROLE_HEADINGS["user"]))
 _ANY_HEADING = re.compile(heading_regex())
 _DETAILS_OPEN = re.compile(r"^<details")
 _DETAILS_CLOSE = re.compile(r"^</details>")
+_FENCE = re.compile(r"^(`{3,})")
+
+
+def _with_fence_flags(lines):
+    """各行に「コードフェンスの中か」を添えて流す。
+
+    ノート本文にはツール出力がそのまま埋まっており、そこに "<details>" や
+    "## 🤖 12:34" と読める行が混ざる。行単位で構造を数えると折りたたみの
+    ネストが狂い、以降のユーザー発話が丸ごと読み飛ばされる。切り詰め
+    （truncate_output）で閉じタグ側だけが落ちると、ずれたまま最後まで
+    復帰しない。
+
+    render.py の _code_block は本文中の最長バッククォート連より長いフェンスを
+    選ぶので、フェンスの中に同じ長さの区切り行が現れることはない。よって
+    「開いたフェンスは、同じ長さ以上のバッククォートだけの行で閉じる」で
+    正しく対応が取れる。
+
+    フラグは構造（折りたたみ・見出し）の判定にだけ使う。本文としては
+    フェンスの中身も残す — コードブロックだけのユーザー発話が空になって
+    しまうため。
+    """
+    fence_len = 0
+    for line in lines:
+        match = _FENCE.match(line)
+        if fence_len:
+            if (match and len(match.group(1)) >= fence_len
+                    and not line[len(match.group(1)):].strip()):
+                fence_len = 0
+            yield line, True
+            continue
+        if match:
+            fence_len = len(match.group(1))
+            yield line, True
+            continue
+        yield line, False
+
 
 DIGEST_FIELDS = ("date", "time", "project", "title", "duration_min",
                  "user_turns", "model", "models", "tool_counts", "tags")
@@ -36,25 +72,27 @@ def extract_user_turns(text: str) -> list[str]:
     """## 👤 見出しの直下の本文だけを拾う。折りたたみの中は読まない。"""
     turns, buffer = [], None
     depth = 0
-    for line in text.splitlines():
-        if _DETAILS_OPEN.match(line):
-            depth += 1
-            continue
-        if _DETAILS_CLOSE.match(line):
-            depth = max(0, depth - 1)
-            continue
+    for line, in_fence in _with_fence_flags(text.splitlines()):
+        if not in_fence:
+            if _DETAILS_OPEN.match(line):
+                depth += 1
+                continue
+            if _DETAILS_CLOSE.match(line):
+                depth = max(0, depth - 1)
+                continue
         if depth:
             continue
-        if _USER_HEADING.match(line):
-            if buffer is not None:
-                turns.append("\n".join(buffer).strip())
-            buffer = []
-            continue
-        if _ANY_HEADING.match(line):
-            if buffer is not None:
-                turns.append("\n".join(buffer).strip())
-            buffer = None
-            continue
+        if not in_fence:
+            if _USER_HEADING.match(line):
+                if buffer is not None:
+                    turns.append("\n".join(buffer).strip())
+                buffer = []
+                continue
+            if _ANY_HEADING.match(line):
+                if buffer is not None:
+                    turns.append("\n".join(buffer).strip())
+                buffer = None
+                continue
         if buffer is not None:
             buffer.append(line)
     if buffer is not None:

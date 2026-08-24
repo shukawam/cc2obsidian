@@ -13,7 +13,17 @@ Obsidian Vault に蓄積された Claude Code セッションを読み、定型�
 
 既定は直近 7 日。ユーザーが期間を指定したらそれに従う。
 
-### 2. ダイジェストを取得する
+`digest --since N` が拾うのは「N 日前の日付ディレクトリから今日まで」＝ N+1 暦日ぶん。週次ノートのファイル名は実行日の ISO 週になるので、月曜に走らせると中身の大半は前週になる。週の途中で振り返るなら、対象期間を frontmatter の `period` に必ず明記すること。
+
+### 2. 取りこぼしを回収する
+
+`SessionEnd` は強制終了では発火しない。分析の前に必ずバックフィルして、hook が取りこぼしたセッションを回収する。
+
+```bash
+python3 ~/work/cc2obsidian/scripts/cc2obsidian.py backfill --since <日数>
+```
+
+### 3. ダイジェストを取得する
 
 ノートを直接読まないこと。1 週間分の全文はコンテキストに収まらない。既定値 7 日をユーザーの指定期間に置き換える。
 
@@ -27,7 +37,7 @@ python3 ~/work/cc2obsidian/scripts/cc2obsidian.py digest --since <日数>
 python3 ~/work/cc2obsidian/scripts/cc2obsidian.py backfill --all
 ```
 
-### 3. 分析する
+### 4. 分析する
 
 ダイジェストを読み、次の 4 点を抽出する。**根拠のないパターンを書かないこと。** 各項目には必ず出典セッションの `[[wikilink]]` を添える。
 
@@ -36,7 +46,7 @@ python3 ~/work/cc2obsidian/scripts/cc2obsidian.py backfill --all
 3. **詰まった箇所・手戻り** — やり直しや長引いた箇所。次に同じ轍を踏まないための示唆
 4. **プロジェクト別の時間配分** — `duration_min` と `project` の集計。使ったモデルの内訳も添える
 
-### 4. 週次ノートを書く
+### 5. 週次ノートを書く
 
 出力先は `<Vault>/Notes/weekly/<ISO年>-W<ISO週番号>.md`。Vault パスは既定 `~/private/obsidian/Obsidian`、環境変数 `CC2OBSIDIAN_VAULT` があればそちら。
 
@@ -64,7 +74,7 @@ tags: [claude-code/weekly]
 ## プロジェクト別の時間配分
 ```
 
-### 5. 昇格を確認する
+### 6. 昇格を確認する
 
 `Knowledge/` へ昇格させたい項目があれば、**どれを昇格するかユーザーに確認してから**ファイルを作る。勝手に作らない。
 

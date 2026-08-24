@@ -48,6 +48,54 @@ class TruncateTest(unittest.TestCase):
     def test_empty_text(self):
         self.assertEqual(render.truncate_output(""), "")
 
+    def test_a_single_enormous_line_is_capped(self):
+        # 行数だけで判定すると、1 行 20 万文字のような出力が丸ごと通る。
+        # 実ログには 87,831 文字の tool input と、60 行以下で 1 万文字超の
+        # tool result が実在する。
+        got = render.truncate_output("x" * 200_000)
+        self.assertLess(len(got), 30_000)
+        self.assertIn("文字省略", got)
+
+    def test_char_cap_keeps_head_and_tail(self):
+        text = "HEAD" + "x" * 200_000 + "TAIL"
+        got = render.truncate_output(text)
+        self.assertTrue(got.startswith("HEAD"))
+        self.assertTrue(got.endswith("TAIL"))
+
+
+class YamlHardeningTest(unittest.TestCase):
+    def test_newline_is_escaped_not_emitted_raw(self):
+        got = render.yaml_scalar("一行目\n二行目")
+        self.assertNotIn("\n", got)
+        self.assertEqual(got, '"一行目\\n二行目"')
+
+    def test_leading_dash_is_quoted(self):
+        # 引用しないと YAML のリスト項目として読まれる。
+        self.assertEqual(render.yaml_scalar("- item"), '"- item"')
+
+    def test_boolean_lookalike_is_quoted(self):
+        self.assertEqual(render.yaml_scalar("true"), '"true"')
+
+    def test_date_lookalike_is_quoted(self):
+        self.assertEqual(render.yaml_scalar("2026-08-24"), '"2026-08-24"')
+
+    def test_number_lookalike_is_quoted(self):
+        self.assertEqual(render.yaml_scalar("123"), '"123"')
+
+    def test_surrounding_whitespace_is_preserved_by_quoting(self):
+        self.assertEqual(render.yaml_scalar("  lead"), '"  lead"')
+
+    def test_multiline_title_keeps_frontmatter_parseable(self):
+        from cc2obsidian.digest import parse_frontmatter
+        fm = render.render_frontmatter(make_session(title="一行目\n二行目"))
+        self.assertTrue(fm.startswith("---\n"))
+        self.assertIn("duration_min", parse_frontmatter(fm + "\n"))
+
+    def test_tag_with_a_comma_does_not_break_the_list(self):
+        fm = render.render_frontmatter(make_session(project="a,b"))
+        line = next(l for l in fm.splitlines() if l.startswith("tags:"))
+        self.assertIn('"project/a,b"', line)
+
 
 class YamlScalarTest(unittest.TestCase):
     def test_plain_text_is_bare(self):

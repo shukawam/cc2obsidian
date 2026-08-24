@@ -227,5 +227,61 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(s.turns[0].text, "ok")
 
 
+class UserAttachmentTest(unittest.TestCase):
+    def test_image_block_leaves_a_placeholder(self):
+        path = write_jsonl([user_entry([
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                         "data": "iVBORw0KGgo="}},
+            {"type": "text", "text": "これは何？"},
+        ])])
+        session = parse.parse_transcript(path)
+        self.assertEqual(session.turns[0].text, "[image image/png]\nこれは何？")
+
+    def test_document_only_turn_is_not_dropped(self):
+        # text ブロックが無いというだけでターンごと消えると、
+        # 「ファイルを貼っただけ」の発話が記録から丸ごと落ちる。
+        path = write_jsonl([user_entry([
+            {"type": "document", "source": {"type": "base64", "media_type": "application/pdf"}},
+        ])])
+        session = parse.parse_transcript(path)
+        self.assertIsNotNone(session)
+        self.assertEqual(session.turns[0].text, "[document application/pdf]")
+
+    def test_base64_payload_is_not_embedded(self):
+        blob = "A" * 5000
+        path = write_jsonl([user_entry([
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                         "data": blob}},
+        ])])
+        self.assertNotIn(blob, parse.parse_transcript(path).turns[0].text)
+
+    def test_tool_result_only_entry_is_still_not_a_turn(self):
+        path = write_jsonl([
+            user_entry([{"type": "tool_result", "tool_use_id": "t1", "content": "out"}]),
+            user_entry("本当の発話"),
+        ])
+        session = parse.parse_transcript(path)
+        self.assertEqual([t.text for t in session.turns], ["本当の発話"])
+
+
+class MalformedEntryTest(unittest.TestCase):
+    def test_one_broken_entry_does_not_lose_the_session(self):
+        # 有効な JSON だが timestamp を欠くエントリ。1 件で例外を投げると
+        # セッション全体が変換されず、記録が丸ごと失われる。
+        broken = {"type": "user", "sessionId": "s1", "cwd": "/w",
+                  "message": {"role": "user", "content": "壊れている"}}
+        path = write_jsonl([user_entry("正常な発話"), broken])
+        session = parse.parse_transcript(path)
+        self.assertIsNotNone(session)
+        self.assertEqual([t.text for t in session.turns], ["正常な発話"])
+
+    def test_unparseable_timestamp_is_skipped(self):
+        bad = user_entry("だめな時刻")
+        bad["timestamp"] = "not-a-timestamp"
+        path = write_jsonl([user_entry("正常な発話"), bad])
+        session = parse.parse_transcript(path)
+        self.assertEqual([t.text for t in session.turns], ["正常な発話"])
+
+
 if __name__ == "__main__":
     unittest.main()

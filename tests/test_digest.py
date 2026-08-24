@@ -75,6 +75,50 @@ tags: [claude-code/session, project/demo]
 """
 
 
+NOTE_WITH_DETAILS_IN_TOOL_OUTPUT = """---
+title: t
+---
+
+# t
+
+## 👤 08:01
+最初の発話
+
+## 🤖 08:02
+<details><summary>🔧 Bash — cat note.md</summary>
+
+```bash
+cat note.md
+```
+
+````
+<details><summary>切り詰めで閉じタグが落ちた出力</summary>
+… 100 行省略 …
+````
+
+</details>
+
+## 👤 08:03
+フェンスの後の発話
+"""
+
+NOTE_WITH_FENCED_HEADING = """---
+title: t
+---
+
+# t
+
+## 👤 08:01
+フェンスの中の見出しは境界ではない
+
+```markdown
+## 🤖 09:99
+```
+
+まだ同じ発話
+"""
+
+
 class FrontmatterTest(unittest.TestCase):
     def test_reads_key_values(self):
         fm = digest.parse_frontmatter(NOTE)
@@ -99,6 +143,24 @@ class UserTurnsTest(unittest.TestCase):
         self.assertNotIn("回答します", joined)
         self.assertNotIn("内心の声", joined)
         self.assertNotIn("ls", joined)
+
+    def test_details_inside_a_code_fence_is_not_a_real_fold(self):
+        # ツール出力がたまたま "<details>" を含んでいても、それはコード
+        # フェンスの中身であって折りたたみの開始ではない。行単位で数えると
+        # ネストが狂い、以降のユーザー発話が全部読み飛ばされる。
+        # 実 Vault の 69 ノート中 1 件で実際に起きていた（44 発話中 34 件しか
+        # 抽出できていなかった）。
+        turns = digest.extract_user_turns(NOTE_WITH_DETAILS_IN_TOOL_OUTPUT)
+        self.assertIn("フェンスの後の発話", turns)
+
+    def test_a_user_turn_that_is_only_a_code_block_keeps_its_body(self):
+        # フェンスは構造判定にだけ使い、本文としては中身を残す。
+        note = "# t\n\n## \U0001F464 08:01\n\n```py\nprint(1)\n```\n"
+        self.assertEqual(digest.extract_user_turns(note), ["```py\nprint(1)\n```"])
+
+    def test_a_heading_inside_a_code_fence_is_not_a_turn_boundary(self):
+        turns = digest.extract_user_turns(NOTE_WITH_FENCED_HEADING)
+        self.assertTrue(any("フェンスの中の見出しは境界ではない" in t for t in turns))
 
     def test_a_markdown_heading_pasted_by_the_user_does_not_truncate_the_turn(self):
         # render.py only ever emits "## 👤 HH:MM" / "## 🤖 HH:MM" headings.

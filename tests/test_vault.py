@@ -118,10 +118,29 @@ class WriteNoteTest(unittest.TestCase):
 
     def test_failed_write_preserves_old_note_on_title_change(self):
         first = vault.write_note(self.root, make_session(title="旧題"), self.state, 100.0)
-        with mock.patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+        with mock.patch("cc2obsidian.vault._atomic_write", side_effect=OSError("disk full")):
             with self.assertRaises(OSError):
                 vault.write_note(self.root, make_session(title="新題"), self.state, 200.0)
         self.assertTrue(first.exists())
+
+    def test_failed_rewrite_preserves_the_previous_note_at_the_same_path(self):
+        # 同じパスを更新する場合、write_text は既存ファイルをその場で切り詰める。
+        # 途中で失敗すると旧ノートまで壊れる。一時ファイル + os.replace なら
+        # 失敗しても元のノートが丸ごと残る。
+        first = vault.write_note(self.root, make_session(), self.state, 100.0)
+        before = first.read_text(encoding="utf-8")
+        with mock.patch("os.replace", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                vault.write_note(self.root, make_session(), self.state, 200.0)
+        self.assertEqual(first.read_text(encoding="utf-8"), before)
+        self.assertEqual(list(first.parent.iterdir()), [first])
+
+    def test_dry_run_renders_the_note(self):
+        # README は dry-run を「変換に問題があれば hook 登録前に検出できる」
+        # 手順として案内している。レンダリングを通さないとそれが成り立たない。
+        with mock.patch("cc2obsidian.vault.render_note", side_effect=ValueError("boom")):
+            with self.assertRaises(ValueError):
+                vault.write_note(self.root, make_session(), self.state, 100.0, dry_run=True)
 
     def test_dry_run_writes_nothing(self):
         out = vault.write_note(self.root, make_session(), self.state, 100.0, dry_run=True)

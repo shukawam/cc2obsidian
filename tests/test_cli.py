@@ -130,6 +130,46 @@ class HookTest(unittest.TestCase):
                 self.assertEqual(cli.main(["hook"]), 0)
 
 
+class BackfillForceTest(unittest.TestCase):
+    """converter を直したあと、変換済みノートを作り直せること。"""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.dir.name)
+        self.projects = self.root / "projects"
+        (self.projects / "proj").mkdir(parents=True)
+        self.vault = self.root / "vault"
+        self.state = self.root / "state.json"
+        write_transcript(self.projects / "proj")
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def _run(self, *argv):
+        with mock.patch("cc2obsidian.config.projects_dir", return_value=self.projects), \
+             mock.patch("cc2obsidian.config.vault_path", return_value=self.vault), \
+             mock.patch("cc2obsidian.config.state_path", return_value=self.state):
+            return cli.main(["backfill", "--all", *argv])
+
+    def test_second_run_skips_but_force_reconverts(self):
+        self.assertEqual(self._run(), 0)
+        note = next(self.vault.rglob("*.md"))
+        note.write_text("手で壊した", encoding="utf-8")
+
+        self._run()                       # 変更が無いのでスキップ
+        self.assertEqual(note.read_text(encoding="utf-8"), "手で壊した")
+
+        self._run("--force")              # 作り直す
+        self.assertIn("session_id", note.read_text(encoding="utf-8"))
+
+    def test_deleted_note_is_recreated_without_force(self):
+        self._run()
+        note = next(self.vault.rglob("*.md"))
+        note.unlink()
+        self._run()
+        self.assertTrue(note.exists())
+
+
 class BackfillTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
