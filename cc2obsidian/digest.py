@@ -101,20 +101,19 @@ def extract_user_turns(text: str) -> list[str]:
 
 
 def _note_paths(vault_root: Path, since_days: int) -> tuple[list[Path], int]:
-    """`Notes/<YYYY-MM-DD>/` の日付（= セッションが実際に行われた日、JST）で絞り込む。
+    """`Notes/raw/<YYYY-MM-DD>/` の日付（= セッションが実際に行われた日、JST）で絞り込む。
 
     ファイルの mtime は使わない — backfill --all はすべてのノートを「今」
     書き直すため、mtime ベースのフィルタは --since N を実質無視してしまう。
+    走査は raw/ 配下のみ。daily/ や weekly/ はセッションノートではない。
     """
-    notes_dir = Path(vault_root) / "Notes"
+    notes_dir = Path(vault_root) / "Notes" / "raw"
     if not notes_dir.is_dir():
         return [], 0
     cutoff_date = datetime.now(JST).date() - timedelta(days=since_days)
     paths = []
     skipped = 0
     for p in notes_dir.rglob("*.md"):
-        if p.parent.name == "weekly":
-            continue
         try:
             note_date = datetime.strptime(p.parent.name, "%Y-%m-%d").date()
         except ValueError:

@@ -5,7 +5,7 @@ Claude Code のセッションを Obsidian Vault へ記録し、週次で振り�
 ## 仕組み
 
 - `SessionEnd` hook が `scripts/cc2obsidian.py hook` を呼び、セッション JSONL を Markdown に変換して Vault へ書く
-- 出力先は `<Vault>/Notes/<YYYY-MM-DD>/<HHMM>-<project>-<title>.md`
+- 出力先は `<Vault>/Notes/raw/<YYYY-MM-DD>/<HHMM>-<project>-<title>.md`
 - 会話は全文、thinking とツール呼び出しは `<details>` で折りたたむ。長いツール出力は先頭 40 行 + 末尾 10 行に切り詰める
 - `/weekly-review` スキルが直近 7 日を分析し、`<Vault>/Notes/weekly/` に週次ノートを書く
 

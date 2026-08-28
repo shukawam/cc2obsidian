@@ -42,7 +42,7 @@ class WriteNoteTest(unittest.TestCase):
     def test_rewriting_same_session_overwrites_in_place(self):
         vault.write_note(self.root, make_session(), self.state, 100.0)
         vault.write_note(self.root, make_session(), self.state, 200.0)
-        notes = list((self.root / "Notes" / "2026-08-23").glob("*.md"))
+        notes = list((self.root / "Notes" / "raw" / "2026-08-23").glob("*.md"))
         self.assertEqual(len(notes), 1)
 
     def test_changed_title_moves_the_note(self):
@@ -56,7 +56,7 @@ class WriteNoteTest(unittest.TestCase):
         vault.write_note(self.root, make_session(session_id="aaaaaaaa-1111"), self.state, 100.0)
         out = vault.write_note(self.root, make_session(session_id="bbbbbbbb-2222"), self.state, 100.0)
         self.assertTrue(out.name.endswith("-bbbbbbbb.md"))
-        notes = list((self.root / "Notes" / "2026-08-23").glob("*.md"))
+        notes = list((self.root / "Notes" / "raw" / "2026-08-23").glob("*.md"))
         self.assertEqual(len(notes), 2)
 
     def test_stale_cross_vault_entry_does_not_clobber_unrelated_note(self):
@@ -95,7 +95,7 @@ class WriteNoteTest(unittest.TestCase):
         lost_state = State(self.root / "nonexistent-state.json")
         out = vault.write_note(self.root, session, lost_state, 200.0)
 
-        notes = list((self.root / "Notes" / "2026-08-23").glob("*.md"))
+        notes = list((self.root / "Notes" / "raw" / "2026-08-23").glob("*.md"))
         self.assertEqual(len(notes), 1)
         self.assertFalse(out.name.endswith("-abc12345.md"))
 

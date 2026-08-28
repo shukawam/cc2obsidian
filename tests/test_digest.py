@@ -174,7 +174,7 @@ class BuildDigestTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.root = Path(self.dir.name)
-        self.notes = self.root / "Notes" / "2026-08-23"
+        self.notes = self.root / "Notes" / "raw" / "2026-08-23"
         self.notes.mkdir(parents=True)
 
     def tearDown(self):
@@ -193,10 +193,22 @@ class BuildDigestTest(unittest.TestCase):
         self.assertIn("[[0801-demo-スキル作成相談]]", digest.build_digest(self.root, 3650))
 
     def test_old_notes_are_excluded(self):
-        old_dir = self.root / "Notes" / _date_dir(90)
+        old_dir = self.root / "Notes" / "raw" / _date_dir(90)
         old_dir.mkdir(parents=True)
         (old_dir / "0801-demo-古い.md").write_text(NOTE, encoding="utf-8")
         self.assertNotIn("古い", digest.build_digest(self.root, since_days=7))
+
+    def test_dated_dirs_outside_raw_are_not_included(self):
+        # 旧レイアウト（Notes/<date>/ 直下）や daily/ は走査対象外。
+        legacy = self.root / "Notes" / "2026-08-23"
+        legacy.mkdir(parents=True)
+        (legacy / "0801-demo-旧配置.md").write_text(NOTE, encoding="utf-8")
+        daily = self.root / "Notes" / "daily"
+        daily.mkdir(parents=True)
+        (daily / "2026-08-23.md").write_text(NOTE, encoding="utf-8")
+        out = digest.build_digest(self.root, 3650)
+        self.assertNotIn("旧配置", out)
+        self.assertNotIn("[[2026-08-23]]", out)
 
     def test_weekly_notes_are_not_included(self):
         weekly = self.root / "Notes" / "weekly"
@@ -266,7 +278,7 @@ class DateDirectoryFilterTest(unittest.TestCase):
         self.dir.cleanup()
 
     def _write_note(self, offset_days: int, filename: str) -> Path:
-        note_dir = self.root / "Notes" / _date_dir(offset_days)
+        note_dir = self.root / "Notes" / "raw" / _date_dir(offset_days)
         note_dir.mkdir(parents=True, exist_ok=True)
         path = note_dir / filename
         path.write_text(NOTE, encoding="utf-8")
@@ -291,7 +303,7 @@ class DateDirectoryFilterTest(unittest.TestCase):
         self.assertNotIn("境界外", out)
 
     def test_non_date_directory_is_skipped_and_counted(self):
-        bad_dir = self.root / "Notes" / "misc"
+        bad_dir = self.root / "Notes" / "raw" / "misc"
         bad_dir.mkdir(parents=True)
         (bad_dir / "0801-demo-不明.md").write_text(NOTE, encoding="utf-8")
         self._write_note(1, "0801-demo-有効.md")

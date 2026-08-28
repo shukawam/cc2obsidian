@@ -31,7 +31,7 @@ python3 scripts/cc2obsidian.py digest --since 7    # 週次分析用ダイジェ
 パイプラインは一方向に流れる。
 
 ```
-JSONL → parse.py → model.py(Session/Turn/ToolCall) → render.py → vault.py → <Vault>/Notes/
+JSONL → parse.py → model.py(Session/Turn/ToolCall) → render.py → vault.py → <Vault>/Notes/raw/
                                                                     ↕ state.py
                                         Vault の .md → digest.py → 週次スキル
 ```
@@ -40,7 +40,7 @@ JSONL → parse.py → model.py(Session/Turn/ToolCall) → render.py → vault.p
 - **render.py** — Session → Markdown。純粋関数。思考とツール呼び出しは `<details>` に畳み、長い出力は先頭 40 行 + 末尾 10 行に切り詰める
 - **vault.py** — 書き込みと冪等性。`state.py` の記録と、ノート自身の frontmatter の `session_id` の両方を見て、上書き・改名・衝突回避を判断する
 - **digest.py** — 書き出した .md を逆方向に読んで軽量ダイジェストを作る。`parse_frontmatter` は vault.py からも使われる
-- **slugs.py** — JST 変換、ファイル名 slug 化、`Notes/<YYYY-MM-DD>/<HHMM>-<project>-<title>.md` の組み立て
+- **slugs.py** — JST 変換、ファイル名 slug 化、`Notes/raw/<YYYY-MM-DD>/<HHMM>-<project>-<title>.md` の組み立て
 - **config.py** — パス解決を一箇所に集約。テストは基本ここを `mock.patch` する
 
 ## 設計上の制約
@@ -73,7 +73,7 @@ JSONL → parse.py → model.py(Session/Turn/ToolCall) → render.py → vault.p
 
 **backfill は `finally` で state を保存する。** `KeyboardInterrupt` で中断しても、変換済みのぶんは記録されて再実行時に重複しない。`--dry-run` のときは中断されても書かない。
 
-**digest の `--since N` はノートの mtime ではなく `Notes/<YYYY-MM-DD>/` の日付で絞る。** `backfill --all` は全ノートを「今」書き直すため、mtime ベースだと `--since` が無意味になる。
+**digest の `--since N` はノートの mtime ではなく `Notes/raw/<YYYY-MM-DD>/` の日付で絞る。** 走査は `Notes/raw/` 配下のみで、`daily/` `weekly/` は対象外。 `backfill --all` は全ノートを「今」書き直すため、mtime ベースだと `--since` が無意味になる。
 
 **mtime はパースの前に取る。** 後で取ると、パースとの隙間に追記されたぶんを読まないまま新しい mtime を記録し、以後スキップされて永久に取り込まれない。先に取れば失敗方向が「次回拾い直す」側に倒れる。
 

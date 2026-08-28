@@ -63,11 +63,11 @@ class NoteRelpathTest(unittest.TestCase):
 
     def test_builds_dated_directory_and_filename(self):
         got = slugs.note_relpath(self.started, "work", "スキル作成相談", "472a17cb-1f3b")
-        self.assertEqual(got, Path("Notes/2026-08-23/0801-work-スキル作成相談.md"))
+        self.assertEqual(got, Path("Notes/raw/2026-08-23/0801-work-スキル作成相談.md"))
 
     def test_disambiguate_appends_short_session_id(self):
         got = slugs.note_relpath(self.started, "work", "スキル作成相談", "472a17cb-1f3b", disambiguate=True)
-        self.assertEqual(got, Path("Notes/2026-08-23/0801-work-スキル作成相談-472a17cb.md"))
+        self.assertEqual(got, Path("Notes/raw/2026-08-23/0801-work-スキル作成相談-472a17cb.md"))
 
 
 if __name__ == "__main__":

@@ -51,4 +51,4 @@ def note_relpath(
     stem = f"{started:%H%M}-{slugify(project, 24)}-{slugify(title)}"
     if disambiguate:
         stem = f"{stem}-{session_id[:8]}"
-    return Path("Notes") / f"{started:%Y-%m-%d}" / f"{stem}.md"
+    return Path("Notes") / "raw" / f"{started:%Y-%m-%d}" / f"{stem}.md"
