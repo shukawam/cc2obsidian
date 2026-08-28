@@ -91,4 +91,4 @@ JSONL → parse.py → model.py(Session/Turn/ToolCall) → render.py → vault.p
 
 ## スキル
 
-`skills/weekly-review/` は `~/.claude/skills/weekly-review` からシンボリックリンクされている。ここを編集すると、そのまま稼働中のスキルが変わる。`digest` の出力形式を変えるときは SKILL.md 側の手順とも整合を取ること。
+`skills/weekly-review/`（週次の傾向分析）と `skills/dreaming/`（日次の深掘り復習）は `~/.claude/skills/` からシンボリックリンクされている。ここを編集すると、そのまま稼働中のスキルが変わる。`digest` の出力形式を変えるときは SKILL.md 側の手順とも整合を取ること。dreaming が書く `Notes/daily/<YYYY-MM-DD>.md` のセクション構成は、weekly-review が日次ノートを集約する前提で固定されている。
