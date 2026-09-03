@@ -94,7 +94,7 @@ def render_frontmatter(session: Session) -> str:
     models = _sorted_counts(session.model_counts)
     primary = models[0][0] if models else "unknown"
 
-    tags = ["claude-code/session", f"project/{session.project}"]
+    tags = [f"{session.source}/session", f"project/{session.project}"]
     customer = customer_from_cwd(session.cwd)
     if customer:
         tags.append(f"customer/{customer}")
@@ -106,11 +106,14 @@ def render_frontmatter(session: Session) -> str:
         f"project: {yaml_scalar(session.project)}",
         f"cwd: {yaml_scalar(session.cwd)}",
         f"session_id: {session.session_id}",
+        f"source: {yaml_scalar(session.source)}",
         f"title: {yaml_scalar(session.title)}",
         f"duration_min: {session.duration_min}",
         f"user_turns: {session.user_turns}",
         f"model: {primary}",
     ]
+    if session.source_version:
+        lines.append(f"source_version: {yaml_scalar(session.source_version)}")
     if len(models) > 1:
         lines.append(f"models: {_inline_map(session.model_counts)}")
     lines.append(f"tool_counts: {_inline_map(session.tool_counts)}")

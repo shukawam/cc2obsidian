@@ -2,7 +2,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from cc2obsidian import state
 from cc2obsidian.state import State
 
 
@@ -68,8 +70,20 @@ class StateTest(unittest.TestCase):
         st = State(self.path)
         st.put("s1", "x.md", 1.0)
         st.save()
-        leftovers = [p.name for p in self.path.parent.iterdir() if p.name != "state.json"]
+        leftovers = [p.name for p in self.path.parent.iterdir()
+                     if p.name.endswith(".tmp")]
         self.assertEqual(leftovers, [])
+
+    @unittest.skipIf(state.fcntl is None, "fcntl is not available on this platform")
+    def test_save_holds_a_dedicated_file_lock(self):
+        st = State(self.path)
+        st.put("s1", "x.md", 1.0)
+        with mock.patch.object(state.fcntl, "flock") as flock:
+            st.save()
+
+        flags = [call.args[1] for call in flock.call_args_list]
+        self.assertEqual(flags, [state.fcntl.LOCK_EX, state.fcntl.LOCK_UN])
+        self.assertTrue(Path(str(self.path) + ".lock").is_file())
 
     def test_different_vault_needs_update_even_with_unchanged_mtime(self):
         st = State(self.path)
@@ -96,6 +110,33 @@ class StateTest(unittest.TestCase):
         st = State(self.path)
         st.put("s1", "x.md", 100.0, vault_root="/vault/a")
         self.assertIsNone(st.get("s1", vault_root="/vault/b"))
+
+    def test_same_session_id_is_namespaced_by_source(self):
+        st = State(self.path)
+        st.put("same", "claude.md", 1.0)
+        st.put("same", "codex.md", 2.0, source="codex")
+
+        self.assertEqual(st.get("same")["path"], "claude.md")
+        self.assertEqual(st.get("same", source="codex")["path"], "codex.md")
+        self.assertFalse(st.needs_update("same", 2.0, source="codex"))
+
+    def test_put_writes_a_namespaced_key(self):
+        st = State(self.path)
+        st.put("s1", "x.md", 1.0)
+        st.save()
+        stored = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertIn("claude-code:s1", stored)
+        self.assertNotIn("s1", stored)
+
+    def test_legacy_unprefixed_key_is_visible_only_to_claude(self):
+        self.path.write_text(json.dumps({
+            "same": {"path": "legacy.md", "source_mtime": 1.0, "vault": None}
+        }), encoding="utf-8")
+        st = State(self.path)
+
+        self.assertEqual(st.get("same")["path"], "legacy.md")
+        self.assertIsNone(st.get("same", source="codex"))
+        self.assertTrue(st.needs_update("same", 1.0, source="codex"))
 
     def test_save_merges_a_concurrent_writers_entries(self):
         # Two State instances both load the (empty) file. One writes s2 and

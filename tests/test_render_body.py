@@ -83,6 +83,12 @@ class BodyTest(unittest.TestCase):
         ]))
         self.assertEqual(body.count("## 🤖"), 0)
 
+    def test_turn_phase_is_optional_metadata(self):
+        turn = Turn("assistant", TS, "途中経過", phase="commentary")
+        body = render.render_body(make_session([turn]))
+        self.assertEqual(turn.phase, "commentary")
+        self.assertIn("途中経過", body)
+
 
 class NoteTest(unittest.TestCase):
     def test_note_is_frontmatter_then_body(self):

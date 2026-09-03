@@ -83,6 +83,41 @@ class IterTranscriptsTest(unittest.TestCase):
     def test_missing_root_returns_empty(self):
         self.assertEqual(cli.iter_transcripts(self.root / "nope", None), [])
 
+    def test_codex_discovery_follows_the_date_hierarchy(self):
+        write_transcript(
+            self.root / "2026" / "08" / "31",
+            "rollout-2026-08-31-session.jsonl",
+        )
+        self.assertEqual(
+            [p.name for p in cli.iter_codex_transcripts(self.root, None)],
+            ["rollout-2026-08-31-session.jsonl"],
+        )
+
+    def test_all_sources_combines_claude_and_codex_roots(self):
+        claude_root = self.root / "claude"
+        codex_root = self.root / "codex"
+        archive_root = self.root / "archive"
+        write_transcript(claude_root / "proj", "claude.jsonl")
+        write_transcript(codex_root / "2026" / "08" / "31", "active.jsonl")
+        write_transcript(archive_root, "archived.jsonl")
+
+        with mock.patch("cc2obsidian.cli.config.projects_dir", return_value=claude_root), \
+             mock.patch("cc2obsidian.cli.config.codex_sessions_dir", return_value=codex_root), \
+             mock.patch(
+                 "cc2obsidian.cli.config.codex_archived_sessions_dir",
+                 return_value=archive_root,
+             ):
+            jobs = cli.iter_source_transcripts(cli.SOURCE_ALL, None)
+
+        self.assertEqual(
+            [(source, path.name) for source, path in jobs],
+            [
+                (cli.SOURCE_CLAUDE, "claude.jsonl"),
+                (cli.SOURCE_CODEX, "active.jsonl"),
+                (cli.SOURCE_CODEX, "archived.jsonl"),
+            ],
+        )
+
 
 class HookTest(unittest.TestCase):
     def setUp(self):
@@ -102,9 +137,9 @@ class HookTest(unittest.TestCase):
             p.stop()
         self.dir.cleanup()
 
-    def _run_hook(self, payload):
+    def _run_hook(self, payload, *argv):
         with mock.patch("sys.stdin", io.StringIO(json.dumps(payload))):
-            return cli.main(["hook"])
+            return cli.main(["hook", *argv])
 
     def test_converts_the_transcript_named_on_stdin(self):
         src = write_transcript(self.root / "projects" / "demo")
@@ -128,6 +163,28 @@ class HookTest(unittest.TestCase):
         with mock.patch("cc2obsidian.cli.config.log_path", side_effect=RuntimeError("log broken")):
             with mock.patch("sys.stdin", io.StringIO("not json")):
                 self.assertEqual(cli.main(["hook"]), 0)
+
+    def test_codex_hook_forwards_stable_metadata_as_parser_hints(self):
+        payload = {
+            "session_id": "codex-session",
+            "transcript_path": "/tmp/codex-session.jsonl",
+            "cwd": "/work/codex-project",
+            "model": "gpt-5.6",
+        }
+        with mock.patch("cc2obsidian.cli.convert_one", return_value=None) as convert:
+            self.assertEqual(self._run_hook(payload, "--source", "codex"), 0)
+
+        self.assertEqual(convert.call_args.kwargs["source"], cli.SOURCE_CODEX)
+        self.assertEqual(convert.call_args.kwargs["session_id_hint"], "codex-session")
+        self.assertEqual(convert.call_args.kwargs["cwd_hint"], "/work/codex-project")
+        self.assertEqual(convert.call_args.kwargs["model_hint"], "gpt-5.6")
+
+
+class ArgumentDefaultsTest(unittest.TestCase):
+    def test_existing_invocations_keep_claude_as_the_default_source(self):
+        parser = cli.build_parser()
+        self.assertEqual(parser.parse_args(["hook"]).source, cli.SOURCE_CLAUDE)
+        self.assertEqual(parser.parse_args(["backfill"]).source, cli.SOURCE_CLAUDE)
 
 
 class BackfillForceTest(unittest.TestCase):

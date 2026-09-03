@@ -1,11 +1,11 @@
 ---
 name: weekly-review
-description: Use when the user wants to look back at their recent Claude Code sessions to find repeated work worth turning into a skill or knowledge worth promoting - triggers on "週次振り返り", "今週の振り返り", "weekly review", "最近の作業を分析して", or asking what patterns show up in their recent sessions.
+description: Use when the user wants to look back at their recent Claude Code and Codex sessions to find repeated work worth turning into a skill or knowledge worth promoting - triggers on "週次振り返り", "今週の振り返り", "weekly review", "最近の作業を分析して", or asking what patterns show up in their recent sessions.
 ---
 
 # 週次振り返り
 
-Obsidian Vault に蓄積された Claude Code セッションを読み、定型作業とナレッジ候補を抽出する。
+Obsidian Vault に蓄積された Claude Code / Codex セッションを読み、定型作業とナレッジ候補を抽出する。
 
 ## 手順
 
@@ -17,10 +17,12 @@ Obsidian Vault に蓄積された Claude Code セッションを読み、定型�
 
 ### 2. 取りこぼしを回収する
 
-`SessionEnd` は強制終了では発火しない。分析の前に必ずバックフィルして、hook が取りこぼしたセッションを回収する。
+`SessionEnd` は強制終了では発火しない（Codex では client を閉じて idle になるまで最大 30 分遅れることもある）。分析の前に必ずバックフィルして、hook が取りこぼしたセッションを回収する。
+
+`--source all` を必ず付ける。省略すると後方互換で `claude-code` だけになり、Codex セッションが分析から丸ごと落ちる。
 
 ```bash
-python3 ~/work/cc2obsidian/scripts/cc2obsidian.py backfill --since <日数>
+python3 ~/work/cc2obsidian/scripts/cc2obsidian.py backfill --source all --since <日数>
 ```
 
 ### 3. ダイジェストを取得する
@@ -34,12 +36,12 @@ python3 ~/work/cc2obsidian/scripts/cc2obsidian.py digest --since <日数>
 「対象なし」が返ったら、まだノートが無い。バックフィルを勧めて終了する。
 
 ```bash
-python3 ~/work/cc2obsidian/scripts/cc2obsidian.py backfill --all
+python3 ~/work/cc2obsidian/scripts/cc2obsidian.py backfill --source all --all
 ```
 
 ### 4. 分析する
 
-ダイジェストを読み、次の 4 点を抽出する。**根拠のないパターンを書かないこと。** 各項目には必ず出典セッションの `[[wikilink]]` を添える。
+ダイジェストを読み、次の 4 点を抽出する。`source` で harness を見分けられるので、同じ作業を Claude Code と Codex で往復している型があれば、それ自体が定型作業の候補になる。**根拠のないパターンを書かないこと。** 各項目には必ず出典セッションの `[[wikilink]]` を添える。
 
 1. **繰り返し出現した作業パターン** — 2 回以上現れた手順。スキル化候補として、何を自動化できるかまで書く
 2. **汎用的に再利用できる知見** — 他のプロジェクトでも効く知識。`Knowledge/` 昇格候補。**提案のみ書く。ファイルは作らない**

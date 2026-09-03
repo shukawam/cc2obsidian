@@ -2,6 +2,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+DEFAULT_SOURCE = "claude-code"
+
 
 @dataclass
 class ToolCall:
@@ -20,6 +22,9 @@ class Turn:
     thinking: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     is_sidechain: bool = False
+    # Codex の commentary / final など、source 固有の応答フェーズ。
+    # Claude の既存 transcript には無いため省略可能にする。
+    phase: str | None = None
 
 
 @dataclass
@@ -34,6 +39,9 @@ class Session:
     model_counts: dict[str, int] = field(default_factory=dict)
     tool_counts: dict[str, int] = field(default_factory=dict)
     user_turns: int = 0
+    # 既存の呼び出し元・保存済みデータはすべて Claude Code として扱う。
+    source: str = DEFAULT_SOURCE
+    source_version: str | None = None
 
     @property
     def duration_min(self) -> int:

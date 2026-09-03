@@ -120,6 +120,7 @@ class FrontmatterTest(unittest.TestCase):
         self.assertIn("session_id: 472a17cb-1f3b-488d-b335-0f7bdf7de956", fm)
         self.assertIn("duration_min: 42", fm)
         self.assertIn("user_turns: 5", fm)
+        self.assertIn("source: claude-code", fm)
 
     def test_starts_and_ends_with_delimiters(self):
         fm = render.render_frontmatter(make_session())
@@ -152,6 +153,22 @@ class FrontmatterTest(unittest.TestCase):
     def test_tags_include_session_and_project(self):
         fm = render.render_frontmatter(make_session())
         self.assertIn("tags: [claude-code/session, project/demo]", fm)
+
+    def test_codex_source_changes_source_field_and_session_tag(self):
+        fm = render.render_frontmatter(make_session(source="codex"))
+        self.assertIn("source: codex", fm)
+        self.assertIn("tags: [codex/session, project/demo]", fm)
+        self.assertNotIn("claude-code/session", fm)
+
+    def test_nonempty_source_version_is_emitted(self):
+        fm = render.render_frontmatter(
+            make_session(source="codex", source_version="0.151.0")
+        )
+        self.assertIn("source_version: 0.151.0", fm)
+
+    def test_empty_source_version_is_omitted(self):
+        fm = render.render_frontmatter(make_session(source_version=""))
+        self.assertNotIn("source_version:", fm)
 
     def test_customer_path_adds_customer_tag(self):
         fm = render.render_frontmatter(make_session(cwd="/Users/x/customer/mizuho/dify", project="dify"))

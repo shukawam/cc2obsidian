@@ -1,11 +1,11 @@
 ---
 name: dreaming
-description: Use when the user wants an in-depth review of today's (or one specific day's) Claude Code sessions - triggers on "今日の振り返り", "日次振り返り", "dreaming", "daily review", or consolidating the day's work at the end of the day. For multi-day trend analysis use weekly-review instead.
+description: Use when the user wants an in-depth review of today's (or one specific day's) Claude Code and Codex sessions - triggers on "今日の振り返り", "日次振り返り", "dreaming", "daily review", or consolidating the day's work at the end of the day. For multi-day trend analysis use weekly-review instead.
 ---
 
 # dreaming — 日次深掘り復習
 
-その日の Claude Code セッションをノート全文レベルで復習し、詰まり・手戻り・うまくいった型・知見を日次ノートに固定化する。週次（weekly-review）が digest 経由の傾向分析なのに対し、日次はセッション数が少ないのでノート全文まで踏み込めるのが存在意義。
+その日の Claude Code / Codex セッションをノート全文レベルで復習し、詰まり・手戻り・うまくいった型・知見を日次ノートに固定化する。週次（weekly-review）が digest 経由の傾向分析なのに対し、日次はセッション数が少ないのでノート全文まで踏み込めるのが存在意義。
 
 ## 手順
 
@@ -17,10 +17,12 @@ description: Use when the user wants an in-depth review of today's (or one speci
 
 ### 2. バックフィルする
 
-`SessionEnd` hook は強制終了・進行中セッションでは発火しないので、その日のセッションの大半が Vault に無いことは普通に起きる。**必ず backfill で回収する。生 JSONL（`~/.claude/projects/`）や cc2obsidian の内部 API を直接触らないこと** — CLI を迂回すると state（`~/.claude/cc2obsidian-state.json`）との整合が壊れる。
+`SessionEnd` hook は強制終了・進行中セッションでは発火しないので、その日のセッションの大半が Vault に無いことは普通に起きる。Codex の `SessionEnd` はさらに、client を閉じて idle になるまで（最大 30 分）発火しないことがある。**必ず backfill で回収する。生 JSONL（`~/.claude/projects/`、`~/.codex/sessions/`）や cc2obsidian の内部 API を直接触らないこと** — CLI を迂回すると state（`~/.claude/cc2obsidian-state.json`）との整合が壊れる。
+
+`--source all` を必ず付ける。省略すると後方互換で `claude-code` だけになり、その日の Codex セッションが丸ごと落ちる。
 
 ```bash
-python3 ~/work/cc2obsidian/scripts/cc2obsidian.py backfill --since 1
+python3 ~/work/cc2obsidian/scripts/cc2obsidian.py backfill --source all --since 1
 ```
 
 対象日が過去なら `--since` を「今日 − 対象日 + 1」日に広げる。
@@ -31,7 +33,7 @@ python3 ~/work/cc2obsidian/scripts/cc2obsidian.py backfill --since 1
 python3 ~/work/cc2obsidian/scripts/cc2obsidian.py digest --since 1
 ```
 
-`--since 1` は前日ディレクトリ〜今日を拾う（手順 1 の持ち越し判定に前日分が要る）。対象日が過去なら backfill と同じ日数にし、対象外の日付のセッションは読み飛ばす。「対象なし」が返ったら `backfill --all` を勧めて終了する。
+`--since 1` は前日ディレクトリ〜今日を拾う（手順 1 の持ち越し判定に前日分が要る）。対象日が過去なら backfill と同じ日数にし、対象外の日付のセッションは読み飛ばす。「対象なし」が返ったら `backfill --source all --all` を勧めて終了する。
 
 ### 4. トリアージして全文を読む
 
@@ -39,6 +41,7 @@ digest のメタデータで深掘り対象を選ぶ。
 
 - **外す**: `user_turns` が 1 以下で `duration_min` が数分以内の自明なセッション（ログインだけ、単発の一問一答で完結など）。概況で 1 行触れる程度に留める。ただし知見の裏取りに必要ならノートを読んでよい（Knowledge 候補の出典には使える。深掘りセクションには入れない）
 - **全文を読む**: 残りのセッションは `Notes/raw/<日付>/` のノートを 1 件ずつ Read する
+- **harness をまたいで見る**: digest の `source` で Claude Code と Codex を見分けられる。同じテーマを両方で追いかけた日は、どちらで何が進んだかを突き合わせる
 - **巨大ノートはフォールバック**: 目安 50KB 超は全文を読まない。digest の発話一覧 + 末尾（結論部）+ 見出し・キーワードの grep で要所だけ拾う
 
 Vault パスは既定 `~/private/obsidian/Obsidian`、環境変数 `CC2OBSIDIAN_VAULT` があればそちら。

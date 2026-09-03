@@ -4,19 +4,40 @@ import tempfile
 from pathlib import Path
 
 from .digest import parse_frontmatter
-from .model import Session
+from .model import DEFAULT_SOURCE, Session
 from .render import render_note
 from .slugs import note_relpath
 from .state import State
 
 
-def _note_session_id(path: Path) -> str | None:
-    """ノートの frontmatter から session_id を読む。読めなければ None。"""
+def _note_identity(path: Path) -> tuple[str, str] | None:
+    """frontmatter から ``(source, session_id)`` を読む。
+
+    source の無い既存ノートは Claude Code が生成したものとして扱う。
+    """
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return None
-    return parse_frontmatter(text).get("session_id")
+    fields = parse_frontmatter(text)
+    session_id = fields.get("session_id")
+    if not session_id:
+        return None
+    return fields.get("source") or DEFAULT_SOURCE, session_id
+
+
+def _is_owned_by(path: Path, session: Session) -> bool:
+    return _note_identity(path) == (session.source, session.session_id)
+
+
+def _is_owned_by_another(path: Path, session: Session) -> bool:
+    """所有者を読み取れて、しかもそれが自分でない場合だけ True。
+
+    frontmatter を読めないノート（手で壊した・書きかけ）は「他人のもの」では
+    ない。state が自分のパスだと記録しているなら、そこへ書き直してよい。
+    """
+    identity = _note_identity(path)
+    return identity is not None and identity != (session.source, session.session_id)
 
 
 def _target_relpath(vault_root: Path, session: Session, st: State) -> Path:
@@ -24,16 +45,18 @@ def _target_relpath(vault_root: Path, session: Session, st: State) -> Path:
     relpath = note_relpath(
         session.started_at, session.project, session.title, session.session_id
     )
-    known = st.get(session.session_id, vault_root=vault_root)
+    known = st.get(session.session_id, vault_root=vault_root, source=session.source)
     if known and known.get("path") == str(relpath):
-        return relpath  # 自分の既存ノート。そのまま上書きする
+        target = vault_root / relpath
+        if not _is_owned_by_another(target, session):
+            return relpath  # 自分の既存ノート。そのまま上書きする
 
     target = vault_root / relpath
     if target.exists():
         # state にエントリが無い（失われた）場合でも、そこにある実ファイルの
         # frontmatter が自分自身の session_id を指しているなら、それは
         # 自分のノートである。Vault を正として、そのまま上書きする。
-        if _note_session_id(target) == session.session_id:
+        if _is_owned_by(target, session):
             return relpath
         # 本当に他セッションのノートが場所を取っている
         return note_relpath(
@@ -85,10 +108,10 @@ def write_note(
     # 信用せず、そのファイル自身の frontmatter で確認する（state キーが
     # 別セッションと衝突していても他人のノートを消さないため）。
     old_path = None
-    known = st.get(session.session_id, vault_root=vault_root)
+    known = st.get(session.session_id, vault_root=vault_root, source=session.source)
     if known and known.get("path") != str(relpath):
         candidate = vault_root / known["path"]
-        if _note_session_id(candidate) == session.session_id:
+        if _is_owned_by(candidate, session):
             old_path = candidate
 
     # 新しいノートを書き切ってから古いノートを消す。逆順だと、書き込みが
@@ -99,5 +122,6 @@ def write_note(
     if old_path is not None:
         old_path.unlink(missing_ok=True)
 
-    st.put(session.session_id, str(relpath), source_mtime, vault_root=vault_root)
+    st.put(session.session_id, str(relpath), source_mtime, vault_root=vault_root,
+           source=session.source)
     return target

@@ -10,12 +10,13 @@ from cc2obsidian.state import State
 TS = slugs.to_jst("2026-08-22T23:01:00.000Z")  # JST 2026-08-23 08:01
 
 
-def make_session(session_id="abc12345-0000", title="タイトル"):
+def make_session(session_id="abc12345-0000", title="タイトル", source="claude-code"):
     return Session(
         session_id=session_id, cwd="/Users/x/work/demo", project="demo",
         title=title, started_at=TS, ended_at=TS,
         turns=[Turn("user", TS, "hi")],
         model_counts={"claude-opus-5": 1}, tool_counts={}, user_turns=1,
+        source=source,
     )
 
 
@@ -58,6 +59,76 @@ class WriteNoteTest(unittest.TestCase):
         self.assertTrue(out.name.endswith("-bbbbbbbb.md"))
         notes = list((self.root / "Notes" / "raw" / "2026-08-23").glob("*.md"))
         self.assertEqual(len(notes), 2)
+
+    def test_same_session_id_from_different_sources_do_not_overwrite(self):
+        claude = vault.write_note(
+            self.root, make_session(source="claude-code"), self.state, 100.0
+        )
+        codex = vault.write_note(
+            self.root, make_session(source="codex"), self.state, 100.0
+        )
+
+        self.assertNotEqual(claude, codex)
+        self.assertTrue(claude.exists())
+        self.assertTrue(codex.exists())
+        self.assertIn("source: claude-code", claude.read_text(encoding="utf-8"))
+        self.assertIn("source: codex", codex.read_text(encoding="utf-8"))
+        self.assertEqual(
+            self.state.get("abc12345-0000", source="codex", vault_root=self.root)["path"],
+            str(codex.relative_to(self.root)),
+        )
+
+    def test_source_less_legacy_note_belongs_to_claude_not_codex(self):
+        session = make_session(source="claude-code")
+        original = vault.write_note(self.root, session, self.state, 100.0)
+        legacy = original.read_text(encoding="utf-8").replace(
+            "source: claude-code\n", ""
+        )
+        original.write_text(legacy, encoding="utf-8")
+
+        lost_state = State(self.root / "lost-state.json")
+        claude = vault.write_note(self.root, session, lost_state, 200.0)
+        codex = vault.write_note(
+            self.root, make_session(source="codex"), lost_state, 200.0
+        )
+
+        self.assertEqual(claude, original)
+        self.assertNotEqual(codex, original)
+        self.assertEqual(len(list(original.parent.glob("*.md"))), 2)
+
+    def test_source_collision_does_not_delete_the_other_sources_note(self):
+        claude = vault.write_note(
+            self.root,
+            make_session(title="Claudeのノート", source="claude-code"),
+            self.state,
+            100.0,
+        )
+        codex = make_session(title="Codexの旧題", source="codex")
+        old_codex = vault.write_note(self.root, codex, self.state, 100.0)
+        new_codex = vault.write_note(
+            self.root,
+            make_session(title="Codexの新題", source="codex"),
+            self.state,
+            200.0,
+        )
+
+        self.assertTrue(claude.exists())
+        self.assertFalse(old_codex.exists())
+        self.assertTrue(new_codex.exists())
+
+    def test_recorded_note_is_rebuilt_even_if_its_frontmatter_is_gone(self):
+        # state が「このパスは自分のノート」と記録している以上、中身が壊れて
+        # 所有者を読めなくなっても、そこへ書き直す。読めない = 他人のもの、と
+        # 扱うと --force がノートを直せず、隣に別名のノートが増えていく。
+        session = make_session()
+        note = vault.write_note(self.root, session, self.state, 100.0)
+        note.write_text("手で壊した", encoding="utf-8")
+
+        rebuilt = vault.write_note(self.root, session, self.state, 200.0)
+
+        self.assertEqual(rebuilt, note)
+        self.assertIn("session_id: abc12345-0000", note.read_text(encoding="utf-8"))
+        self.assertEqual(len(list(note.parent.glob("*.md"))), 1)
 
     def test_stale_cross_vault_entry_does_not_clobber_unrelated_note(self):
         # session X was previously converted into a different Vault (vault_a).

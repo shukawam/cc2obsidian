@@ -25,5 +25,32 @@ class VaultPathTest(unittest.TestCase):
             self.assertEqual(result, Path(tmp).resolve() / "relative" / "vault")
 
 
+class TranscriptPathTest(unittest.TestCase):
+    def test_claude_projects_dir_keeps_the_legacy_alias(self):
+        with mock.patch.dict(
+            os.environ,
+            {"CC2OBSIDIAN_CLAUDE_PROJECTS": "/tmp/custom-claude-projects"},
+        ):
+            self.assertEqual(
+                config.claude_projects_dir(), Path("/tmp/custom-claude-projects")
+            )
+            self.assertEqual(config.projects_dir(), config.claude_projects_dir())
+
+    def test_codex_session_roots_can_be_overridden(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "CC2OBSIDIAN_CODEX_SESSIONS": "/tmp/custom-codex-sessions",
+                "CC2OBSIDIAN_CODEX_ARCHIVED_SESSIONS": "/tmp/custom-codex-archive",
+            },
+        ):
+            self.assertEqual(
+                config.codex_sessions_dir(), Path("/tmp/custom-codex-sessions")
+            )
+            self.assertEqual(
+                config.codex_archived_sessions_dir(), Path("/tmp/custom-codex-archive")
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

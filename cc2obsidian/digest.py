@@ -51,8 +51,9 @@ def _with_fence_flags(lines):
         yield line, False
 
 
-DIGEST_FIELDS = ("date", "time", "project", "title", "duration_min",
-                 "user_turns", "model", "models", "tool_counts", "tags")
+DIGEST_FIELDS = ("date", "time", "source", "source_version", "project", "title",
+                 "duration_min", "user_turns", "model", "models", "tool_counts",
+                 "tags")
 
 
 def parse_frontmatter(text: str) -> dict[str, str]:

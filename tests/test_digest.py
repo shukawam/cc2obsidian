@@ -188,6 +188,16 @@ class BuildDigestTest(unittest.TestCase):
         self.assertIn("最初の質問です", out)
         self.assertNotIn("回答します", out)
 
+    def test_includes_source_metadata_when_present(self):
+        note = NOTE.replace(
+            "session_id: abc12345-0000\n",
+            "session_id: abc12345-0000\nsource: codex\nsource_version: 0.151.0\n",
+        )
+        (self.notes / "0801-demo-codex.md").write_text(note, encoding="utf-8")
+        out = digest.build_digest(self.root, since_days=3650)
+        self.assertIn("source=codex", out)
+        self.assertIn("source_version=0.151.0", out)
+
     def test_note_links_use_wikilink_form(self):
         (self.notes / "0801-demo-スキル作成相談.md").write_text(NOTE, encoding="utf-8")
         self.assertIn("[[0801-demo-スキル作成相談]]", digest.build_digest(self.root, 3650))
